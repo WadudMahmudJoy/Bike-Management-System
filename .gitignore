@@ -1,0 +1,92 @@
+# Dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# Testing
+/coverage
+
+# Next.js
+/.next/
+/out/
+
+# Production
+/build
+
+# Misc
+.DS_Store
+*.pem
+Thumbs.db
+
+# Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Vercel
+.vercel
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Private uploads and customer documents
+/uploads/
+/private/
+/storage/
+
+# Customer documents and NID images
+*.nid.*
+/nid-images/
+/customer-documents/
+/customer-docs/
+
+# Database dumps and backups
+*.sql
+*.dump
+*.backup
+*.bak
+/backups/
+/db-dumps/
+
+# Logs
+/logs/
+*.log
+
+# Generated secrets
+*.key
+*.cert
+*.secret
+
+# Temporary files
+/tmp/
+*.tmp
+*.temp
+
+# Prisma
+/prisma/migrations/**/migration_lock.toml
+/src/generated/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Generated skills/agent config from Prisma init
+/.agents/
+/.claude/
+/.windsurf/
+skills-lock.json
+

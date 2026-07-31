@@ -1,0 +1,31 @@
+@import "tailwindcss";
+
+:root {
+  --color-obsidian: #0A0A0A;
+  --color-graphite: #1A1A1A;
+  --color-graphite-light: #2A2A2A;
+  --color-warm-ivory: #F5F0E8;
+  --color-soft-white: #E8E0D4;
+  --color-champagne: #C8B88A;
+  --color-error: #D44638;
+  --color-success: #4A8C5C;
+}
+
+@theme inline {
+  --color-obsidian: var(--color-obsidian);
+  --color-graphite: var(--color-graphite);
+  --color-graphite-light: var(--color-graphite-light);
+  --color-warm-ivory: var(--color-warm-ivory);
+  --color-soft-white: var(--color-soft-white);
+  --color-champagne: var(--color-champagne);
+  --color-error: var(--color-error);
+  --color-success: var(--color-success);
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+body {
+  background-color: var(--color-obsidian);
+  color: var(--color-warm-ivory);
+  font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
+}
