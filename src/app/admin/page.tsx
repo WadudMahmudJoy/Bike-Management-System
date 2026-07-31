@@ -1,9 +1,15 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Admin | Bike Management System",
-  description: "Administration panel for Bike Management System",
-  robots: "noindex, nofollow",
+  title: "Admin Panel | Bike Management System",
+  description: "Administration panel for Sristy-Dristy Bike House",
+  robots: {
+    index: false,
+    follow: false,
+    noarchive: true,
+    nosnippet: true,
+    noimageindex: true,
+  },
 };
 
 export default function AdminPage() {
@@ -25,7 +31,7 @@ export default function AdminPage() {
             </p>
           </div>
 
-          <p className="mt-6 text-xs text-gray-400">Phase 0 — Foundation</p>
+          <p className="mt-6 text-xs text-gray-400">Phase 0.5 — Foundation & Baseline</p>
         </div>
       </div>
     </div>

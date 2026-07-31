@@ -1,70 +1,76 @@
 # Security Requirements
 
-This document outlines the security architecture and requirements for the Sristy-Dristy Bike House (Bike Management System) application. It ensures a robust, secure environment for both public users and system administrators.
+This document specifies the security controls, architecture, and requirements for the **Bike Management System** (Sristy-Dristy Bike House).
 
-## Authentication
-- **No public admin registration:** Admin accounts can only be created by existing administrators or via a secure database seed script during initialization.
-- **Secure password hashing:** All passwords are hashed using bcrypt or argon2 with an appropriate cost factor before storage. Plain text passwords are never stored or logged.
-- **Secure server-side sessions:** Sessions are managed securely on the server and stored in the database.
-- **HttpOnly cookies:** Session tokens are delivered exclusively via HttpOnly cookies to prevent client-side JavaScript access (mitigating XSS attacks).
-- **Secure cookie flag:** In production environments, the Secure flag is mandatory, ensuring cookies are only transmitted over HTTPS.
-- **SameSite cookie attribute:** Cookies use `SameSite=Lax` or `Strict` to prevent Cross-Site Request Forgery (CSRF).
-- **Login rate limiting:** Authentication endpoints implement rate limiting to restrict maximum login attempts per IP and per account, utilizing exponential backoff to thwart brute-force attacks.
-- **Session expiration and renewal:** Sessions have a strict expiration time. Active sessions are renewed securely, while inactive sessions require re-authentication.
-- **Logout behavior:** Explicit logout actions immediately invalidate the server-side session and clear the client-side cookie.
+---
 
-## Authorization
-- **Server-side checks:** Authorization is verified on the server for every protected route, API endpoint, and server action. Client-side hiding is only for UI/UX and never relied upon for security.
-- **Role-based access control (RBAC):** Access is granted based on specific admin roles (e.g., Super Admin, Sales Agent). Actions are restricted strictly to permitted roles.
-- **Middleware-level auth checks:** Next.js middleware is employed to protect all admin route groups (`/admin/*`), ensuring unauthenticated users are redirected before any page rendering occurs.
-- **API route protection:** All API routes validate session integrity and user roles before processing requests.
+## 1. IMPLEMENTED IN PHASE 0.5
 
-## Input Validation & CSRF
-- **Zod validation:** All server-side inputs, including form submissions and API payloads, are strictly validated against predefined Zod schemas.
-- **CSRF protection:** All state-changing operations (POST, PUT, DELETE) require CSRF protection mechanisms in addition to SameSite cookie configurations.
-- **Safe error messages:** Error responses are sanitized to ensure they do not leak internal system details, stack traces, or database structures to the client.
-- **SQL injection prevention:** All database queries are executed using Prisma ORM, which inherently utilizes parameterized queries to prevent SQL injection vulnerabilities.
+The following baseline security controls are active in the codebase:
 
-## Security Headers
-The application enforces strict security headers via Next.js configuration:
-- **X-Content-Type-Options:** `nosniff` (Prevents MIME-type sniffing)
-- **X-Frame-Options:** `DENY` (Prevents clickjacking by disabling iframe rendering)
-- **Referrer-Policy:** `strict-origin-when-cross-origin` (Protects referrer data)
-- **Content Security Policy (CSP):** A restrictive CSP is planned and enforced to allow resources only from trusted domains and prevent inline script execution.
-- **Strict-Transport-Security (HSTS):** Enforced in production to guarantee HTTPS connections.
+### HTTP Response Headers (`next.config.ts`)
+- **`poweredByHeader: false`**: Disables the `X-Powered-By: Next.js` header to obscure technology stack details.
+- **`X-Content-Type-Options: nosniff`**: Prevents browsers from MIME-sniffing response content types.
+- **`X-Frame-Options: DENY`**: Prevents clickjacking by blocking iframe embedding across all routes.
+- **`Referrer-Policy: strict-origin-when-cross-origin`**: Protects sensitive path details in referrer headers when navigating cross-origin.
+- **`Permissions-Policy`**: Restricts unused browser features (`camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()`).
+- **`X-Robots-Tag: noindex, nofollow, noarchive`**: Configured on `/admin` and `/api/*` routes to instruct search crawlers not to index or archive management interfaces.
+- **`Strict-Transport-Security` (HSTS)**: Configured dynamically to emit `max-age=63072000` exclusively in production (`NODE_ENV === "production"`). Does not include `includeSubDomains` or `preload`.
 
-## File Upload Security
-- **File type validation:** Uploads are strictly whitelisted to specific extensions (e.g., JPEG, PNG, PDF).
-- **MIME type validation:** The actual file content and magic numbers are inspected to verify the MIME type, bypassing simple extension checks.
-- **File size limits:** Strict, configurable maximum file sizes are enforced with reasonable defaults to prevent Denial of Service (DoS) via storage exhaustion.
-- **Generated filenames:** User-provided filenames are completely discarded. The system generates secure, random filenames (e.g., UUIDs) for all uploads.
-- **Executable blocking:** Executable files (e.g., .exe, .sh, .bat) are explicitly blocked.
-- **Private object storage:** Sensitive documents such as NIDs and customer documents are stored in a private storage bucket inaccessible from the public internet.
-- **Temporary signed URLs:** Authorized access to private documents is granted exclusively through short-lived, time-limited signed URLs.
-- **Storage segregation:** Different document types (e.g., public bike images vs. private customer NIDs) are stored in separate paths or buckets with distinct access policies.
+### API & Cache Protection (`src/app/api/health/route.ts`)
+- `/api/health` response includes `Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate` and `X-Robots-Tag: noindex, nofollow, noarchive`.
+- Endpoint returns minimal JSON (`status: "ok", service: "bike-management-system"`), explicitly exposing no environment variables, git commits, server paths, database status, or framework version numbers.
 
-## Data Protection
-- **Encryption at rest:** Highly sensitive fields, such as NID numbers and bank account numbers, are encrypted at rest within the PostgreSQL database.
-- **Secure hashing for uniqueness:** To detect duplicate NIDs without exposing the raw value during searches, a deterministic secure hash of the NID is stored alongside the encrypted value.
-- **Masked display:** Sensitive information is masked in the admin UI (e.g., displaying only the last four digits of a bank account or NID) to prevent shoulder surfing and accidental exposure.
-- **Private file storage:** Customer documents are never served via public static URLs. Access requires authentication and authorization.
-- **Test data integrity:** Development environments, seed scripts, and test fixtures contain exclusively synthetic, fake data. Real customer data is never used outside of production.
+### Environment Variable & Git Hygiene (`.gitignore` & `.env.example`)
+- `.env` files are excluded from Git via `.gitignore` (only non-secret template `.env.example` is tracked).
+- Customer NID images (`*.nid.*`, `/nid-images/`, `/customer-documents/`), database dumps (`*.sql`, `*.dump`), local backups, and private uploads are excluded from Git.
+- `packageManager` field locked to `pnpm@11.1.2` in `package.json`.
 
-## Audit & Monitoring
-- **Audit logging:** All significant data mutations (creates, updates, deletes) are logged with a timestamp, user ID, and the nature of the change.
-- **Login monitoring:** Successful and failed login attempts are logged to monitor for suspicious activities.
-- **Action logging:** Admin actions include records of previous and new values for critical business entities (e.g., price changes, status updates).
-- **Log sanitization:** Logs are sanitized to ensure passwords, session tokens, NIDs, and other personally identifiable information (PII) are never written to log files.
+---
 
-## Database Security
-- **Least-privilege access:** The application connects to PostgreSQL using a dedicated database user with the minimum required permissions (e.g., CRUD operations only, no schema modification rights).
-- **Migration user:** A separate, highly privileged administrative user is utilized exclusively during deployment for schema migrations.
-- **Encrypted backups:** Database backups are scheduled regularly, encrypted securely, and stored in a separate geographic location.
-- **Restore testing:** Backup restoration procedures are tested on a regular schedule to guarantee data recoverability.
-- **Credential management:** Database connection strings are stored securely in environment variables and are never hardcoded.
+## 2. PLANNED FOR LATER PHASES
 
-## Dependency & Deployment
-- **Dependency auditing:** Regular security audits of third-party dependencies are conducted (e.g., using `pnpm audit` in CI/CD pipelines).
-- **Git hygiene:** Private keys, certificates, and sensitive configuration files are strictly excluded from version control via `.gitignore`.
-- **Environment variables:** `.env` files are never committed to the repository.
-- **Code reviews:** All pull requests are evaluated against a security-focused code review checklist prior to merging.
+The following security controls are specified and planned for implementation in subsequent phases:
+
+### Authentication Architecture (Phase 2 - Admin Shell)
+- **Password Hashing:** Argon2id is locked as the password hashing algorithm. Plain-text passwords will never be logged or stored.
+- **No Public Admin Registration:** Admin accounts can only be created via CLI seed scripts or by authorized Super Admins.
+- **Session Tokens:** Session tokens are delivered exclusively via `HttpOnly`, `SameSite=Lax/Strict`, `Secure` cookies.
+- **Token Hashing:** Server database (`AdminSession`) stores only SHA-256 hashes of session tokens (`sessionTokenHash`), never raw reusable session tokens.
+- **Session Lifecycle:** Mandatory server-side session rotation and revocation on logout or timeout.
+- **Login Rate Limiting:** Exponential backoff rate limiting per IP and per account on login endpoints.
+
+### Server Authorization (Phase 2+)
+- **Server-Side Enforcement:** Every Server Action, API endpoint, and page layout must enforce server-side authentication and role-based access control (RBAC). Hiding UI elements is for UX only and is never relied upon for security.
+- **Robots & Hidden Routes:** `robots.txt` and `noindex` headers are search crawler directives, NOT access control. All protected endpoints must reject unauthorized requests with HTTP 401/403.
+
+### Sensitive Field Encryption & Masking (Phase 3 - Customer Management)
+- **Authenticated Encryption at Rest:** Customer NID numbers and bank account numbers will be encrypted using AES-256-GCM. Encryption keys will remain strictly outside the repository and database (environment configuration).
+- **Encryption Key Rotation:** `keyVersion` metadata stored alongside encrypted payloads to support seamless key rotation.
+- **Duplicate NID Lookup:** Uses a keyed HMAC-SHA256 hash (`nidNumberHmac`) of the normalized NID using a secret server pepper stored outside the database. Plain SHA hashes are prohibited.
+- **UI Masking:** Admin UI renders only masked values (e.g., displaying only the last 4 digits of bank account numbers).
+- **Log Redaction:** Password hashes, raw tokens, NID numbers, bank accounts, and full identity documents are redacted from application logs and `AuditLog` JSON payloads.
+
+### Private Object Storage & Upload Security (Phase 3+)
+- **Storage Isolation:** Sensitive customer documents (NID images, utility bills) are stored in private object storage, never in public web roots. Public bike images use separate public storage.
+- **Upload Inspection:** Upload handlers validate extensions against strict whitelists, verify MIME types via magic-byte inspection, enforce size limits, generate UUID filenames, and block executables.
+- **Signed URLs:** Access to private customer documents is granted exclusively via short-lived, time-limited signed URLs generated after server authorization.
+
+### Database Least Privilege (Phase 1)
+- Database connections use a least-privilege PostgreSQL role for normal runtime operations (CRUD), with a separate administrative user for migrations.
+
+### Nonce-Based Content Security Policy (CSP)
+- A strict, nonce-based Content Security Policy will be implemented after authentication, hosting, storage origins, and analytics providers are finalized. CSP is currently marked PLANNED to avoid unsafe inline overrides or broken Next.js hydration.
+
+---
+
+## 3. REQUIRED BEFORE PRODUCTION
+
+Prior to launching to production, the following verification and deployment controls are mandatory:
+
+1. **Domain & HTTPS Verification:** Confirm HTTPS is active and valid on the production domain before enforcing production HSTS headers.
+2. **Secret Auditing:** Verify no real credentials, database strings, or API secrets exist in Git history, environment templates, or client bundles.
+3. **Environment Indexing Validation:** Confirm `SITE_INDEXING_ENABLED` is `false` in staging/preview environments and enabled only on the live production domain.
+4. **Backup & Restore Validation:** Execute an automated PostgreSQL database backup and perform a clean restore test on a separate staging instance.
+5. **Dependency Audit:** Verify `pnpm audit --audit-level=high` returns zero unresolved high/critical vulnerabilities.
+6. **Penetration & Authorization Sweep:** Perform an authorization check on every API route and Server Action to ensure unauthenticated users cannot access or mutate business data.
