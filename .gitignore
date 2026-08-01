@@ -52,8 +52,9 @@ next-env.d.ts
 /customer-documents/
 /customer-docs/
 
-# Database dumps and backups
+# Database dumps and backups (preserve Prisma migration SQL files)
 *.sql
+!prisma/migrations/**/*.sql
 *.dump
 *.backup
 *.bak
@@ -89,4 +90,3 @@ next-env.d.ts
 /.claude/
 /.windsurf/
 skills-lock.json
-
