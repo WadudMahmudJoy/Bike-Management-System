@@ -1,131 +1,244 @@
 # Database Design Document
 
 ## Overview
-This document outlines the database design for the "Bike Management System" (customer-facing name: "Sristy-Dristy Bike House", legal name: "Sristy-Dristy Enterprise"). The database is PostgreSQL, accessed through the Prisma ORM. 
 
-**Core Conventions:**
-- All monetary values are strictly represented using the `Decimal` type to ensure precision.
-- All timestamps are recorded in coordinated universal time (UTC).
-- This is a DESIGN DOCUMENT only. The corresponding Prisma models are derived from these specifications.
+This document specifies the authoritative database design for the **Bike Management System** (Customer-facing name: **Sristy-Dristy Bike House**, Legal name: **Sristy-Dristy Enterprise**).
 
----
+The target database is **PostgreSQL 18**, accessed via **Prisma ORM 7** (`@prisma/adapter-pg`).
 
-## Planned Entities
-
-### Administration
-- **AdminUser**: 
-  - `id`, `email`, `passwordHash`, `name`, `role`, `isActive`, `createdAt`, `updatedAt`
-- **AdminSession**: 
-  - `id`, `adminUserId`, `sessionToken`, `expiresAt`, `createdAt`, `ipAddress`, `userAgent`
-- **AuditLog**: 
-  - `id`, `adminUserId`, `action`, `entityType`, `entityId`, `previousValue` (JSON), `newValue` (JSON), `ipAddress`, `createdAt`
-
-### Customers
-- **Customer**: 
-  - `id`, `fullName`, `phone` (normalized), `whatsappNumber`, `email`, `fatherName`, `address`, `emergencyContact`, `internalNotes`, `nidStatus` (PENDING/SUBMITTED/VERIFIED/REJECTED), `createdAt`, `updatedAt`
-- **CustomerRole**: 
-  - `id`, `customerId`, `role` (BUYER/SELLER/POTENTIAL_BUYER/POTENTIAL_SELLER/BIKE_REQUESTER), `assignedAt`
-- **CustomerIdentity**: 
-  - `id`, `customerId`, `nidNumber` (encrypted), `nidNumberHash` (for duplicate detection), `frontImagePath`, `backImagePath`, `verifiedAt`, `verifiedBy`
-- **CustomerBankAccount**: 
-  - `id`, `customerId`, `bankName`, `accountNumber` (encrypted), `accountNumberMasked`, `branchName`, `createdAt`
-- **CustomerDocument**: 
-  - `id`, `customerId`, `documentType`, `filePath` (private storage), `uploadedAt`, `description`
-- **CustomerAccount** (future): 
-  - `id`, `customerId` (unique one-to-one), `phone` (verified), `passwordHash`, `isActive`, `createdAt`, `lastLoginAt`
-
-### Bike Inventory
-- **Bike**: 
-  - `id`, `registrationNumber`, `brand`, `model`, `year`, `engineCC`, `color`, `mileageKm`, `fuelType`, `transmissionType`, `condition`, `askingPrice` (Decimal), `purchaseId` (nullable FK), `publicStatus` (AVAILABLE/RESERVED/SOLD/UNLISTED), `description`, `features`, `createdAt`, `updatedAt`
-- **BikeImage**: 
-  - `id`, `bikeId`, `imagePath`, `displayOrder`, `isPrimary`, `uploadedAt`
-- **BikeCondition**: 
-  - `id`, `bikeId`, `engineCondition`, `bodyCondition`, `tyreCondition`, `brakeCondition`, `electricalCondition`, `overallNotes`, `inspectedAt`, `inspectedBy`
-- **BikeDocument**: 
-  - `id`, `bikeId`, `documentType`, `filePath`, `description`, `uploadedAt`
-- **BikeStatusHistory**: 
-  - `id`, `bikeId`, `previousStatus`, `newStatus`, `changedBy`, `changedAt`, `reason`
-
-### Purchasing (Shop buys from sellers)
-- **Purchase**: 
-  - `id`, `bikeId`, `sellerId` (Customer FK), `purchaseDate`, `agreedPrice` (Decimal), `status` (DRAFT/CONFIRMED/COMPLETED/CANCELLED), `notes`, `createdAt`, `updatedAt`
-  - *Note: `totalPaid` is computed server-side and not stored.*
-- **PurchasePayment**: 
-  - `id`, `purchaseId`, `amount` (Decimal), `paymentDate`, `paymentMethod`, `receivedBy`, `receiptNumber`, `notes`, `isVoided`, `voidReason`, `voidedAt`, `voidedBy`, `createdAt`
-
-### Sales (Shop sells to buyers)
-- **Sale**: 
-  - `id`, `bikeId`, `buyerId` (Customer FK), `saleDate`, `agreedPrice` (Decimal), `discount` (Decimal), `finalPrice` (Decimal), `status` (DRAFT/CONFIRMED/COMPLETED/CANCELLED), `notes`, `createdAt`, `updatedAt`
-- **SalePayment**: 
-  - `id`, `saleId`, `amount` (Decimal), `paymentDate`, `paymentMethod`, `receivedBy`, `receiptNumber`, `notes`, `isVoided`, `voidReason`, `voidedAt`, `voidedBy`, `createdAt`
-
-### Operations
-- **Expense**: 
-  - `id`, `category`, `description`, `amount` (Decimal), `expenseDate`, `paidTo`, `receiptPath`, `recordedBy`, `createdAt`
-- **Offer**: 
-  - `id`, `title`, `description`, `discountType`, `discountValue`, `applicableBikeIds`, `startDate`, `endDate`, `isActive`, `createdAt`, `updatedAt`
-- **BikeRequest**: 
-  - `id`, `requesterName`, `requesterPhone`, `preferredBrand`, `preferredModel`, `budgetRange`, `description`, `status` (NEW/REVIEWED/MATCHED/CLOSED), `customerId` (nullable FK for linked customer), `createdAt`, `updatedAt`
-- **SellBikeRequest**: 
-  - `id`, `sellerName`, `sellerPhone`, `bikeBrand`, `bikeModel`, `bikeYear`, `askingPrice`, `description`, `imagePaths`, `status` (NEW/REVIEWED/CONTACTED/PURCHASED/REJECTED), `customerId` (nullable FK), `createdAt`, `updatedAt`
-- **Inquiry**: 
-  - `id`, `name`, `phone`, `email`, `message`, `bikeId` (nullable), `type`, `status`, `createdAt`
-- **InspectionBooking**: 
-  - `id`, `name`, `phone`, `bikeId`, `preferredDate`, `status`, `notes`, `createdAt`
-- **ShopSetting**: 
-  - `id`, `key` (unique), `value`, `updatedAt`
+> **IMPLEMENTED IN PHASE 1 & PHASE 1.1:** All 26 Prisma business models, 25 enum groups, custom check constraints, partial unique cover-image index (`idx_bike_image_cover`), normalized admin email, and engine-level payment/expense immutability triggers are implemented in `prisma/schema.prisma` and applied via initial migration `20260801174101_init_dealership_schema` and corrective migration `20260802000215_phase1_integrity_corrections`.
 
 ---
 
-## Design Rules
+## Implemented Entities & Schema Specification
 
-To maintain data integrity and consistency, the following rules apply across the entire data model:
+### 1. Administration & Security
 
-1. **Role Flexibility:** A customer may hold multiple roles simultaneously.
-2. **Phone Normalization:** Customer phone numbers require normalization (standardized Bangladesh format).
-3. **Duplicate Phones:** Duplicate phone numbers require controlled handling (system must warn the administrator, not silently create the duplicate or fail opaquely).
-4. **NID Lifecycle:** A customer's NID may start as `PENDING` — transactions can begin but must not be finalized until verification is complete.
-5. **NID Security:** Sensitive NID values must use encrypted storage at rest.
-6. **Duplicate NID Detection:** A separate secure lookup hash must be used for duplicate-NID detection without exposing or decrypting the raw NID.
-7. **Account Masking:** Bank account numbers must be masked in normal admin displays (showing only the last 4 digits).
-8. **Document Storage:** Customer documents must use private object storage, not publicly accessible URLs.
-9. **Separate Domains:** Purchases (shop buys) and sales (shop sells) are separate transaction domains with distinct, isolated payment tables.
-10. **Auditable Payments:** Each payment is an independent auditable record — records must never be silently deleted.
-11. **Decimal Precision:** All monetary values strictly use Decimal-compatible database types (PostgreSQL `DECIMAL`/`NUMERIC`).
-12. **Status Separation:** Public bike status (`AVAILABLE`, `SOLD`) and financial settlement status are distinct concepts.
-13. **Asynchronous Settlement:** A bike may be publicly marked `SOLD` while buyer payments are still pending or due.
-14. **Computed Values:** Financial totals and remaining balances are calculated server-side. They are not stored as denormalized fields unless an explicit, documented consistency strategy is implemented.
-15. **Database Transactions:** Multi-record workflow modifications (e.g., completing a sale + updating bike status + recording payment) require strict database transactions to guarantee atomicity.
-16. **No Deletions of Payments:** Posted payments cannot be silently deleted — use void/reversal records (`isVoided`, `voidReason`) instead.
-17. **Schema Review:** All schema migrations must undergo formal review before being applied to the production database.
-18. **Data Integrity:** Foreign-key and uniqueness constraints must be utilized heavily where data integrity requires it.
-19. **No Duplicated Balances:** Do not duplicate computed balances across unrelated tables without a strict, documented consistency strategy.
-20. **Timezones:** All timestamps are strictly maintained in UTC.
-21. **Data Retention:** Soft delete should be considered and implemented for financial records (via status transitions, voiding, and active flags rather than record removal).
+- **AdminUser**
+  - `id`: UUID (Primary Key)
+  - `email`: String (Display email)
+  - `normalizedEmail`: String (Unique, canonical lower-case)
+  - `passwordHash`: String (Argon2id hash)
+  - `name`: String
+  - `role`: Enum (`OWNER`, `ADMIN`)
+  - `isActive`: Boolean (Default: `true`)
+  - `lastLoginAt`: Timestamp (UTC, Nullable)
+  - `createdAt`: Timestamp (UTC)
+  - `updatedAt`: Timestamp (UTC)
+
+- **AdminSession**
+  - `id`: UUID (Primary Key)
+  - `adminUserId`: UUID (Foreign Key -> `AdminUser.id`, `onDelete: Restrict`)
+  - `sessionTokenHash`: String (Unique, SHA-256 hash of raw session token)
+  - `expiresAt`: Timestamp (UTC)
+  - `revokedAt`: Timestamp (UTC, Nullable)
+  - `ipAddress`: String (Nullable, max 45 chars)
+  - `userAgent`: String (Nullable)
+  - `createdAt`: Timestamp (UTC)
+
+- **AuditLog**
+  - `id`: UUID (Primary Key)
+  - `adminUserId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: SetNull`)
+  - `action`: String (e.g., `CREATE_SALE`, `VOID_PAYMENT`)
+  - `entityType`: String (e.g., `Sale`, `PurchasePayment`)
+  - `entityId`: String
+  - `previousValue`: JSON (Nullable, redacted of sensitive fields)
+  - `newValue`: JSON (Nullable, redacted of sensitive fields)
+  - `ipAddress`: String (Nullable)
+  - `requestCorrelationId`: String (Nullable)
+  - `createdAt`: Timestamp (UTC)
+  - *Trigger Protection:* Append-only (`fn_prevent_audit_log_tampering` blocks `UPDATE` and `DELETE`).
 
 ---
 
-## Index Strategy
+### 2. Customer Management
 
-To ensure optimal query performance, the following indexes are planned:
+- **Customer**
+  - `id`: UUID (Primary Key)
+  - `customerCode`: String (Unique, Nullable)
+  - `fullName`: String
+  - `fatherName`: String (Nullable)
+  - `phone`: String (Normalized Bangladesh format)
+  - `phoneNormalized`: String (Indexed)
+  - `whatsappNumber`: String (Nullable)
+  - `whatsappNormalized`: String (Nullable)
+  - `email`: String (Nullable)
+  - `address`: String (Nullable until transaction completion)
+  - `emergencyContact`: String (Nullable)
+  - `internalNotes`: String (Nullable, Admin-only)
+  - `isArchived`: Boolean (Default: `false`)
+  - `createdByAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: SetNull`)
+  - `createdAt`: Timestamp (UTC)
+  - `updatedAt`: Timestamp (UTC)
 
-- **Phone Number Lookups:** 
-  - `Customer(phone)` - Standard search and duplicate prevention.
-  - `Customer(whatsappNumber)` - For rapid messaging lookups.
-- **Identity Deduplication:** 
-  - `CustomerIdentity(nidNumberHash)` - Essential for identifying duplicate NID submissions without decrypting values.
-- **Bike Inventory Search:** 
-  - `Bike(publicStatus)` - Fast filtering of available bikes for the public storefront.
-  - `Bike(brand, model)` - Text search and filtering optimizations.
-  - `Bike(registrationNumber)` - For internal and administrative lookup.
-- **Financial Queries:** 
-  - `Purchase(sellerId)` - Fast lookup of purchases associated with a specific customer.
-  - `Sale(buyerId)` - Fast lookup of sales associated with a specific customer.
-  - `PurchasePayment(purchaseId)` and `SalePayment(saleId)` - Needed for rapidly calculating totals server-side.
-- **Administration & Security:** 
-  - `AdminSession(sessionToken)` - Required for immediate session validation.
-  - `AdminUser(email)` - Login lookup.
-  - `AuditLog(entityType, entityId)` - Allows quick reconstruction of the history of any specific record.
-- **Operations:** 
-  - `ShopSetting(key)` - Unique lookup for application configuration.
-  - `Offer(applicableBikeIds)` - GIN index for efficiently matching active offers to specific bikes.
+- **CustomerRole**
+  - `id`: UUID (Primary Key)
+  - `customerId`: UUID (Foreign Key -> `Customer.id`, `onDelete: Cascade`)
+  - `role`: Enum (`BUYER`, `SELLER`, `POTENTIAL_BUYER`, `POTENTIAL_SELLER`, `BIKE_REQUESTER`)
+  - `assignedAt`: Timestamp (UTC)
+  - *Constraint:* Unique pair `(customerId, role)`
+
+- **CustomerIdentity**
+  - `id`: UUID (Primary Key)
+  - `customerId`: UUID (Unique Foreign Key -> `Customer.id`, `onDelete: Restrict`)
+  - `nidStatus`: Enum (`PENDING`, `SUBMITTED`, `VERIFIED`, `NEEDS_CORRECTION`)
+  - `encryptedNidNumber`: String (Authenticated AES-256-GCM encrypted string, Nullable)
+  - `encryptionIv`: String (Nullable)
+  - `authTag`: String (Nullable)
+  - `keyVersion`: Integer (Default: `1`)
+  - `nidNumberHmac`: String (Unique, Nullable keyed HMAC-SHA256)
+  - `lastFour`: String (Nullable)
+  - `submittedAt`: Timestamp (UTC, Nullable)
+  - `verifiedAt`: Timestamp (UTC, Nullable)
+  - `verifiedByAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: SetNull`)
+  - `notes`: String (Nullable)
+  - `createdAt`: Timestamp (UTC)
+  - `updatedAt`: Timestamp (UTC)
+  - *Constraints:* `keyVersion > 0`, encryption bundle completeness, `lastFour` exact length 4, `VERIFIED` requires `verifiedAt` and `verifiedByAdminId`.
+
+- **CustomerBankAccount**
+  - `id`: UUID (Primary Key)
+  - `customerId`: UUID (Foreign Key -> `Customer.id`, `onDelete: Restrict`)
+  - `bankName`: String
+  - `accountHolderName`: String
+  - `branchName`: String (Nullable)
+  - `encryptedAccountNumber`: String (Nullable)
+  - `encryptionIv`: String (Nullable)
+  - `authTag`: String (Nullable)
+  - `keyVersion`: Integer (Default: `1`)
+  - `accountNumberLastFour`: String (Nullable)
+  - `routingNumber`: String (Nullable)
+  - `mobileBankingProvider`: String (Nullable)
+  - `mobileBankingNumber`: String (Nullable)
+  - `isDefault`: Boolean (Default: `false`)
+  - `isActive`: Boolean (Default: `true`)
+  - `createdAt`: Timestamp (UTC)
+  - `updatedAt`: Timestamp (UTC)
+  - *Constraints:* `keyVersion > 0`, encryption bundle completeness, `accountNumberLastFour` exact length 4.
+
+- **CustomerDocument**
+  - `id`: UUID (Primary Key)
+  - `customerId`: UUID (Foreign Key -> `Customer.id`, `onDelete: Restrict`)
+  - `documentType`: Enum (`NID_FRONT`, `NID_BACK`, `BANK_DOCUMENT`, `SALE_AGREEMENT`, `PURCHASE_AGREEMENT`, `OTHER`)
+  - `storageKey`: String
+  - `originalFileName`: String
+  - `mimeType`: String
+  - `fileSize`: Integer
+  - `status`: Enum (`PENDING`, `SUBMITTED`, `VERIFIED`, `NEEDS_CORRECTION`, `NOT_AVAILABLE`)
+  - `notes`: String (Nullable)
+  - `uploadedAt`: Timestamp (UTC)
+  - `verifiedAt`: Timestamp (UTC, Nullable)
+  - `verifiedByAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: SetNull`)
+  - *Constraint:* `fileSize > 0`.
+
+---
+
+### 3. Bike Inventory
+
+- **Bike**
+  - `id`: UUID (Primary Key)
+  - `stockCode`: String (Unique)
+  - `slug`: String (Unique)
+  - `brand`: String
+  - `model`: String
+  - `variant`: String (Nullable)
+  - `modelYear`: Integer
+  - `registrationYear`: Integer (Nullable)
+  - `engineCapacityCc`: Integer
+  - `mileageKm`: Integer
+  - `color`: String
+  - `fuelType`: Enum (`PETROL`, `ELECTRIC`, `HYBRID`, `OTHER`)
+  - `registrationNumber`: String (Unique, Nullable)
+  - `ownershipCount`: Integer (Nullable)
+  - `askingPrice`: Decimal (14, 2, Nullable)
+  - `isNegotiable`: Boolean (Default: `true`)
+  - `description`: String (Nullable)
+  - `knownIssues`: String (Nullable)
+  - `inspectionNotes`: String (Nullable)
+  - `isFeatured`: Boolean (Default: `false`)
+  - `status`: Enum (`DRAFT`, `AVAILABLE`, `RESERVED`, `SOLD`, `HIDDEN`)
+  - `publishedAt`: Timestamp (UTC, Nullable)
+  - `archivedAt`: Timestamp (UTC, Nullable)
+  - `createdAt`: Timestamp (UTC)
+  - `updatedAt`: Timestamp (UTC)
+  - *Constraint:* `ownershipCount IS NULL OR ownershipCount >= 1`. No Circular FK.
+
+- **BikeImage**
+  - `id`: UUID (Primary Key)
+  - `bikeId`: UUID (Foreign Key -> `Bike.id`, `onDelete: Cascade`)
+  - `storageKey`: String
+  - `publicUrl`: String (Nullable)
+  - `altText`: String (Nullable)
+  - `width`: Integer (Nullable)
+  - `height`: Integer (Nullable)
+  - `displayOrder`: Integer (Default: `0`)
+  - `isCover`: Boolean (Default: `false`)
+  - `createdAt`: Timestamp (UTC)
+  - *Partial Unique Index:* `idx_bike_image_cover` enforces max 1 cover image per bike (`WHERE isCover = true`). `width > 0`, `height > 0`, `displayOrder >= 0`.
+
+- **BikeCondition**
+  - `id`: UUID (Primary Key)
+  - `bikeId`: UUID (Foreign Key -> `Bike.id`, `onDelete: Cascade`)
+  - `component`: Enum (`ENGINE`, `BODY`, `TYRES`, `BATTERY`, `ELECTRICAL`, `BRAKES`, `SUSPENSION`, `TRANSMISSION`, `OTHER`)
+  - `rating`: Enum (`EXCELLENT`, `GOOD`, `FAIR`, `NEEDS_ATTENTION`, `UNKNOWN`)
+  - `notes`: String (Nullable)
+  - `inspectedByAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: SetNull`)
+  - `inspectedAt`: Timestamp (UTC)
+
+- **BikeDocument**
+  - `id`: UUID (Primary Key)
+  - `bikeId`: UUID (Foreign Key -> `Bike.id`, `onDelete: Restrict`)
+  - `documentType`: Enum (`REGISTRATION`, `TAX_TOKEN`, `FITNESS`, `OWNERSHIP_TRANSFER`, `PURCHASE_RECEIPT`, `SERVICE_HISTORY`, `OTHER`)
+  - `status`: Enum (`PENDING`, `SUBMITTED`, `VERIFIED`, `NEEDS_CORRECTION`, `NOT_AVAILABLE`)
+  - `privateStorageKey`: String (Nullable)
+  - `expiryDate`: Timestamp (UTC, Nullable)
+  - `verifiedAt`: Timestamp (UTC, Nullable)
+  - `verifiedByAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: SetNull`)
+
+- **BikeStatusHistory**
+  - `id`: UUID (Primary Key)
+  - `bikeId`: UUID (Foreign Key -> `Bike.id`, `onDelete: Restrict`)
+  - `previousStatus`: Enum (`DRAFT`, `AVAILABLE`, `RESERVED`, `SOLD`, `HIDDEN`)
+  - `newStatus`: Enum (`DRAFT`, `AVAILABLE`, `RESERVED`, `SOLD`, `HIDDEN`)
+  - `changedByAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: SetNull`)
+  - `reason`: String
+  - `changedAt`: Timestamp (UTC)
+  - *Trigger Protection:* Append-only (`fn_prevent_bike_status_history_tampering` blocks `UPDATE` and `DELETE`).
+
+---
+
+### 4. Purchasing & Sales
+
+- **PurchasePayment** & **SalePayment**
+  - Immutability enforced by PostgreSQL functions `fn_prevent_purchase_payment_tampering` and `fn_prevent_sale_payment_tampering`.
+  - Blocks `DELETE`, blocks `UPDATE` on core fields using `IS DISTINCT FROM`, requires unvoided start on `INSERT`, requires complete void metadata during one-way void transition (`isVoided = true`), and blocks unvoiding.
+
+- **Sale**
+  - *Constraints:* `listedPrice > 0`, `discountAmount >= 0`, `finalPrice >= 0`, `finalPrice = listedPrice - discountAmount`.
+
+---
+
+### 5. Operations & Expenses
+
+- **Expense**
+  - `id`: UUID (Primary Key)
+  - `expenseNumber`: String (Unique)
+  - `category`: Enum (`REPAIR`, `TRANSPORT`, `DOCUMENT_TRANSFER`, `MARKETING`, `UTILITIES`, `RENT`, `SALARY`, `OTHER`)
+  - `amount`: Decimal (14, 2)
+  - `incurredDate`: Timestamp (UTC)
+  - `paymentMethod`: Enum (`CASH`, `BANK_TRANSFER`, `BKASH`, `NAGAD`, `ROCKET`, `CHEQUE`, `MIXED`, `OTHER`)
+  - `referenceNumber`: String (Nullable)
+  - `description`: String
+  - `paidTo`: String (Nullable)
+  - `receiptPath`: String (Nullable)
+  - `bikeId`: UUID (Nullable Foreign Key -> `Bike.id`, `onDelete: Restrict`)
+  - `purchaseId`: UUID (Nullable Foreign Key -> `Purchase.id`, `onDelete: Restrict`)
+  - `saleId`: UUID (Nullable Foreign Key -> `Sale.id`, `onDelete: Restrict`)
+  - `recordedByAdminId`: UUID (Foreign Key -> `AdminUser.id`, `onDelete: Restrict`)
+  - `isVoided`: Boolean (Default: `false`)
+  - `voidedAt`: Timestamp (UTC, Nullable)
+  - `voidedByAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: Restrict`)
+  - `voidReason`: String (Nullable)
+  - `createdAt`: Timestamp (UTC)
+  - `updatedAt`: Timestamp (UTC)
+  - *Trigger Protection:* `fn_prevent_expense_tampering` blocks `DELETE`, core `UPDATE`, and unvoiding.

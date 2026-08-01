@@ -1,57 +1,84 @@
 # Architecture and Product Decisions
 
-All decisions are dated 2026-08-01 (Phase 0).
+This document logs all authoritative architectural and product decisions for the **Bike Management System** (Sristy-Dristy Bike House).
 
-## 2026-08-01: TypeScript Full-Stack Monolith
-- **Decision**: Single Next.js repository with TypeScript for both frontend and backend
-- **Rationale**: Reduces deployment complexity, shares types between client and server, single codebase for a small team
-- **Alternatives considered**: Separate Express/NestJS backend — rejected due to unnecessary complexity for this scale
+---
 
-## 2026-08-01: Next.js App Router
-- **Decision**: Use Next.js App Router (not Pages Router)
-- **Rationale**: Server Components by default, better data fetching patterns, layouts, streaming support
+## Initial Phase 0 Decisions (2026-08-01)
 
-## 2026-08-01: PostgreSQL with Prisma ORM
-- **Decision**: PostgreSQL for data storage, Prisma for ORM
-- **Rationale**: PostgreSQL provides ACID transactions, Decimal types for money, robust constraints. Prisma provides type-safe queries and migration management.
-- **Alternatives rejected**: MongoDB (no ACID transactions, poor fit for financial data)
+### 2026-08-01: TypeScript Full-Stack Monolith
+- **Decision:** Single Next.js repository with TypeScript for both frontend and backend.
+- **Rationale:** Reduces deployment complexity, shares types between client and server, single codebase for a small team.
 
-## 2026-08-01: Optional Customer Accounts
-- **Decision**: Customer accounts are optional, separate from business records
-- **Rationale**: Most customers interact via WhatsApp/phone. Mandatory accounts would create friction. Business records must exist independently.
+### 2026-08-01: Next.js App Router
+- **Decision:** Use Next.js App Router (not Pages Router).
+- **Rationale:** Server Components by default, better data fetching patterns, layouts, and streaming support.
 
-## 2026-08-01: Customer and CustomerAccount Separation
-- **Decision**: Customer (business record) and CustomerAccount (login credentials) are separate entities with optional one-to-one relation
-- **Rationale**: Admin creates customer records during transactions. Customer may optionally create a login later. Keeps business data independent of authentication.
+### 2026-08-01: PostgreSQL with Prisma ORM
+- **Decision:** PostgreSQL for data storage, Prisma for ORM.
+- **Rationale:** PostgreSQL provides ACID transactions, Decimal types for money, robust constraints. Prisma provides type-safe queries and migration management.
 
-## 2026-08-01: NID Pending Workflow
-- **Decision**: NID starts as PENDING and is required only for final transaction completion
-- **Rationale**: Allows business operations to begin (enquiry, reservation, initial payment) before NID verification is complete. Practical for how the business actually operates.
+### 2026-08-01: Optional Customer Accounts
+- **Decision:** Customer accounts are optional and separate from customer business records.
+- **Rationale:** Business records must exist independently of online account creation.
 
-## 2026-08-01: Append-Only Payment Ledger
-- **Decision**: Payments are individual auditable records that cannot be silently edited or deleted. Corrections use void/reversal records.
-- **Rationale**: Financial integrity requires an auditable trail. Silent deletion of payment records is a fraud risk.
+### 2026-08-01: Customer and CustomerAccount Separation
+- **Decision:** `Customer` (business record) and `CustomerAccount` (login credentials) are separate entities with an optional one-to-one relation.
 
-## 2026-08-01: Separate Purchase and Sale Payment Domains
-- **Decision**: PurchasePayment and SalePayment are separate tables, not a unified payment table
-- **Rationale**: Purchases (money going out) and sales (money coming in) have different workflows, validation rules, and reporting needs. Separation prevents confusion.
+### 2026-08-01: Append-Only Payment Ledger
+- **Decision:** Payments are individual auditable records that cannot be silently edited or deleted. Corrections use void/reversal records.
 
-## 2026-08-01: Separate Public and Financial Status
-- **Decision**: A bike's public display status (AVAILABLE/SOLD) is independent of its financial settlement status
-- **Rationale**: A bike can be marked as SOLD publicly while payments are still being collected from the buyer. These are different business concerns.
+### 2026-08-01: No Floating-Point Money
+- **Decision:** All monetary values use PostgreSQL Decimal/Numeric types, never JavaScript floating-point.
 
-## 2026-08-01: No Live Chat in MVP
-- **Decision**: No public live chat feature in the initial release
-- **Rationale**: WhatsApp is the primary communication channel for this business. A custom chat system adds significant complexity without proportional value.
+### 2026-08-01: Server-Side Financial Calculations
+- **Decision:** All financial totals, balances, and due amounts are calculated server-side dynamically.
 
-## 2026-08-01: Website Forms + WhatsApp as Primary Communication
-- **Decision**: Public website provides submission forms (sell bike, request bike, enquiry, inspection). WhatsApp and phone calls are the primary follow-up channels.
-- **Rationale**: Matches actual business workflow. Customers prefer WhatsApp for ongoing communication. Forms capture initial structured data.
+---
 
-## 2026-08-01: No Floating-Point Money
-- **Decision**: All monetary values use PostgreSQL Decimal/Numeric types, never JavaScript floating-point
-- **Rationale**: Floating-point arithmetic causes rounding errors in financial calculations. Decimal types provide exact precision.
+## Phase 0.5 & 0.5.1 Hardening & Security Decisions (2026-08-01)
 
-## 2026-08-01: Server-Side Financial Calculations
-- **Decision**: All financial totals, balances, and due amounts are calculated server-side
-- **Rationale**: Client-side calculations can be manipulated and may have precision issues. Server is the source of truth.
+### 2026-08-01: Elimination of Circular Bike/Purchase Foreign Key
+- **Decision:** Remove `Bike.purchaseId`. The relation `Purchase.bikeId` is the sole authoritative foreign key.
+
+### 2026-08-01: Relational Entities for Offers and Request Images
+- **Decision:** Replace array-based `Offer.applicableBikeIds` and `SellBikeRequest.imagePaths` with relational join tables `OfferBike` and `SellBikeRequestImage`.
+
+### 2026-08-01: Five Canonical Public Bike Inventory Statuses
+- **Decision:** Lock public bike status enum strictly to `DRAFT`, `AVAILABLE`, `RESERVED`, `SOLD`, `HIDDEN`.
+
+### 2026-08-01: Keyed HMAC for Duplicate NID Identification
+- **Decision:** Duplicate NID detection uses a keyed `HMAC-SHA256` hash (`nidNumberHmac`) using a secret server pepper kept outside the database.
+
+### 2026-08-01: Session Token Hashing (`AdminSession.sessionTokenHash`)
+- **Decision:** The database `AdminSession` record stores a SHA-256 hash of the session token (`sessionTokenHash`).
+
+### 2026-08-01: Root Workspace Overrides for pnpm 11 (`pnpm-workspace.yaml`)
+- **Decision:** Move all transitive dependency overrides (`sharp: 0.35.3`, `postcss: 8.5.25`) to `pnpm-workspace.yaml`.
+
+### 2026-08-01: Mandatory Blocking CI Security Audit Gate
+- **Decision:** `pnpm audit --audit-level=high` runs as a mandatory blocking step in `.github/workflows/ci.yml`. `continue-on-error: true` is strictly prohibited.
+
+---
+
+## Phase 1 & 1.1 Database Environment & Schema Hardening Decisions (2026-08-01 & 2026-08-02)
+
+### 2026-08-01: Local Development Container Environment (`compose.yaml`)
+- **Decision:** Containerize PostgreSQL major version 18 using `postgres:18-alpine` bound strictly to `127.0.0.1:5434` with project-scoped volume mounted at `/var/lib/postgresql`. Next.js application remains uncontainerized for fast local development.
+- **Rationale:** Isolates database state, ensures identical database engine version across development environments, and protects local network interfaces.
+
+### 2026-08-02: Script-Based Shadow Database Initializer (`01-create-shadow-database.sh`)
+- **Decision:** Create and commit `docker/postgres/init/01-create-shadow-database.sh` with `set -eu` and safe variable validation to initialize `POSTGRES_SHADOW_DB` on first boot.
+- **Rationale:** Guarantees fresh clones contain every file referenced by `compose.yaml` without relying on uncommitted setup scripts.
+
+### 2026-08-02: Normalized Admin Email (`AdminUser.normalizedEmail`)
+- **Decision:** Add `normalizedEmail` (`String @unique @db.VarChar(255)`) to `AdminUser` for case-insensitive authentication queries while preserving `email` for display.
+- **Rationale:** Prevents security bypasses or login confusion due to case sensitivity in email input.
+
+### 2026-08-02: Hardened Payment & Expense Ledger Immutability Triggers
+- **Decision:** Implement PostgreSQL triggers `fn_prevent_purchase_payment_tampering`, `fn_prevent_sale_payment_tampering`, and `fn_prevent_expense_tampering`. Reject insertions with pre-voided flags, block all `DELETE` operations, block core field updates using `IS DISTINCT FROM`, require complete void metadata (`voidedAt`, `voidedByAdminId`, non-empty `voidReason`) during void transitions, and block unvoiding.
+- **Rationale:** Enforces payment and expense ledger immutability at the database engine level.
+
+### 2026-08-02: Mandatory Database Integrity Test Suite (`pnpm db:test-integrity`)
+- **Decision:** Create `scripts/test-database-integrity.ts` executing 37 database assertions (triggers, check constraints, partial index) inside a rolled-back transaction, integrated into CI.
+- **Rationale:** Prisma schema drift checks (`prisma migrate diff`) do not validate unsupported database triggers or custom CHECK constraints; explicit runtime integrity testing is mandatory.

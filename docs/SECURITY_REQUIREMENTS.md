@@ -1,70 +1,53 @@
 # Security Requirements
 
-This document outlines the security architecture and requirements for the Sristy-Dristy Bike House (Bike Management System) application. It ensures a robust, secure environment for both public users and system administrators.
+This document specifies the security controls, architecture, and requirements for the **Bike Management System** (Sristy-Dristy Bike House).
 
-## Authentication
-- **No public admin registration:** Admin accounts can only be created by existing administrators or via a secure database seed script during initialization.
-- **Secure password hashing:** All passwords are hashed using bcrypt or argon2 with an appropriate cost factor before storage. Plain text passwords are never stored or logged.
-- **Secure server-side sessions:** Sessions are managed securely on the server and stored in the database.
-- **HttpOnly cookies:** Session tokens are delivered exclusively via HttpOnly cookies to prevent client-side JavaScript access (mitigating XSS attacks).
-- **Secure cookie flag:** In production environments, the Secure flag is mandatory, ensuring cookies are only transmitted over HTTPS.
-- **SameSite cookie attribute:** Cookies use `SameSite=Lax` or `Strict` to prevent Cross-Site Request Forgery (CSRF).
-- **Login rate limiting:** Authentication endpoints implement rate limiting to restrict maximum login attempts per IP and per account, utilizing exponential backoff to thwart brute-force attacks.
-- **Session expiration and renewal:** Sessions have a strict expiration time. Active sessions are renewed securely, while inactive sessions require re-authentication.
-- **Logout behavior:** Explicit logout actions immediately invalidate the server-side session and clear the client-side cookie.
+---
 
-## Authorization
-- **Server-side checks:** Authorization is verified on the server for every protected route, API endpoint, and server action. Client-side hiding is only for UI/UX and never relied upon for security.
-- **Role-based access control (RBAC):** Access is granted based on specific admin roles (e.g., Super Admin, Sales Agent). Actions are restricted strictly to permitted roles.
-- **Middleware-level auth checks:** Next.js middleware is employed to protect all admin route groups (`/admin/*`), ensuring unauthenticated users are redirected before any page rendering occurs.
-- **API route protection:** All API routes validate session integrity and user roles before processing requests.
+## 1. IMPLEMENTED IN PHASE 0.5, PHASE 0.5.1, PHASE 0.5.2, PHASE 1 & PHASE 1.1
 
-## Input Validation & CSRF
-- **Zod validation:** All server-side inputs, including form submissions and API payloads, are strictly validated against predefined Zod schemas.
-- **CSRF protection:** All state-changing operations (POST, PUT, DELETE) require CSRF protection mechanisms in addition to SameSite cookie configurations.
-- **Safe error messages:** Error responses are sanitized to ensure they do not leak internal system details, stack traces, or database structures to the client.
-- **SQL injection prevention:** All database queries are executed using Prisma ORM, which inherently utilizes parameterized queries to prevent SQL injection vulnerabilities.
+The following baseline security and database controls are active in the codebase:
 
-## Security Headers
-The application enforces strict security headers via Next.js configuration:
-- **X-Content-Type-Options:** `nosniff` (Prevents MIME-type sniffing)
-- **X-Frame-Options:** `DENY` (Prevents clickjacking by disabling iframe rendering)
-- **Referrer-Policy:** `strict-origin-when-cross-origin` (Protects referrer data)
-- **Content Security Policy (CSP):** A restrictive CSP is planned and enforced to allow resources only from trusted domains and prevent inline script execution.
-- **Strict-Transport-Security (HSTS):** Enforced in production to guarantee HTTPS connections.
+### Database Integrity & Engine-Level Security (Phase 1 & Phase 1.1)
+- **Database Engine Isolation:** Local PostgreSQL containerized using `postgres:18-alpine` in `compose.yaml` and bound strictly to `127.0.0.1:5434` (`localhost` loopback only). Mounts named volume at `/var/lib/postgresql`. Public binding `0.0.0.0` is strictly forbidden.
+- **Normalized Admin Email:** `AdminUser.normalizedEmail` (`String @unique`) enforces canonical lowercased case-insensitive email uniqueness for authentication.
+- **Database Immutability Triggers (`migration.sql`):**
+  - **`PurchasePayment` & `SalePayment` Triggers:** Block `DELETE` statements on payment records. Block `UPDATE` statements on core financial fields using `IS DISTINCT FROM`. Require new payments to start unvoided (`isVoided = false`). Restrict voiding to a one-way transition (`isVoided = true`) requiring `voidedAt`, `voidedByAdminId`, and a non-empty `voidReason`. Block unvoiding (`isVoided = false`).
+  - **`Expense` Trigger (`fn_prevent_expense_tampering`):** Enforces identical append-only immutability rules on operational expense records.
+  - **`AuditLog` & `BikeStatusHistory` Triggers:** Block both `UPDATE` and `DELETE` operations, enforcing strict append-only behavior at the database engine level.
+- **Database CHECK Constraints:** Enforce nonnegative monetary values, positive purchase agreed prices, nonnegative sale prices (`finalPrice = listedPrice - discountAmount`), valid year ranges (1900–2100), positive engine capacity, nonnegative mileage, valid budget ranges (`minimumBudget <= maximumBudget`), percentage discount limits (0–100), encryption bundle completeness, and internal void field metadata consistency.
+- **Partial Unique Index:** `idx_bike_image_cover` enforces that a bike can have at most one cover image (`isCover = true`).
+- **Financial Relation Protection:** Foreign keys on `Purchase`, `Sale`, `PurchasePayment`, `SalePayment`, `Expense`, `CustomerIdentity`, `CustomerBankAccount`, `CustomerDocument`, `CustomerAccount`, `BikeDocument`, and `BikeStatusHistory` use `onDelete: Restrict`. Financial records can never be cascade-deleted.
+- **Mandatory Runtime Integrity Test Suite (`pnpm db:test-integrity`):** Prisma schema drift checks (`prisma migrate diff`) do not validate unsupported custom PostgreSQL triggers or CHECK constraints. A 37-point runtime integrity test suite (`scripts/test-database-integrity.ts`) runs inside a rolled-back transaction during local verification and CI.
 
-## File Upload Security
-- **File type validation:** Uploads are strictly whitelisted to specific extensions (e.g., JPEG, PNG, PDF).
-- **MIME type validation:** The actual file content and magic numbers are inspected to verify the MIME type, bypassing simple extension checks.
-- **File size limits:** Strict, configurable maximum file sizes are enforced with reasonable defaults to prevent Denial of Service (DoS) via storage exhaustion.
-- **Generated filenames:** User-provided filenames are completely discarded. The system generates secure, random filenames (e.g., UUIDs) for all uploads.
-- **Executable blocking:** Executable files (e.g., .exe, .sh, .bat) are explicitly blocked.
-- **Private object storage:** Sensitive documents such as NIDs and customer documents are stored in a private storage bucket inaccessible from the public internet.
-- **Temporary signed URLs:** Authorized access to private documents is granted exclusively through short-lived, time-limited signed URLs.
-- **Storage segregation:** Different document types (e.g., public bike images vs. private customer NIDs) are stored in separate paths or buckets with distinct access policies.
+### Blocking CI Security Gate (`.github/workflows/ci.yml`)
+- **Enforced Blocking Security Audit:** `pnpm audit --audit-level=high` runs in CI as a mandatory blocking gate.
+- **No `continue-on-error`:** `continue-on-error: true`, shell exit-code suppression (`|| true`), or blanket advisory bypasses are strictly prohibited.
+- **Root Workspace Dependency Overrides (`pnpm-workspace.yaml`):** Transitive dependency vulnerabilities in pnpm 11 are resolved via `overrides` in `pnpm-workspace.yaml` (`sharp: 0.35.3`, `postcss: 8.5.25`).
+- **CI Database Integration:** CI pipeline runs a disposable PostgreSQL 18 service container with automated migration deployment, schema drift check (`prisma migrate diff`), migration status check, double-pass seed idempotency check, and runtime integrity test (`pnpm db:test-integrity`).
+- **Environment Telemetry Disabled:** `NEXT_TELEMETRY_DISABLED: "1"` set in CI workflow.
 
-## Data Protection
-- **Encryption at rest:** Highly sensitive fields, such as NID numbers and bank account numbers, are encrypted at rest within the PostgreSQL database.
-- **Secure hashing for uniqueness:** To detect duplicate NIDs without exposing the raw value during searches, a deterministic secure hash of the NID is stored alongside the encrypted value.
-- **Masked display:** Sensitive information is masked in the admin UI (e.g., displaying only the last four digits of a bank account or NID) to prevent shoulder surfing and accidental exposure.
-- **Private file storage:** Customer documents are never served via public static URLs. Access requires authentication and authorization.
-- **Test data integrity:** Development environments, seed scripts, and test fixtures contain exclusively synthetic, fake data. Real customer data is never used outside of production.
+### HTTP Response Headers (`next.config.ts`)
+- `poweredByHeader: false`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, strict `Permissions-Policy`, `X-Robots-Tag: noindex, nofollow, noarchive` on `/admin` and `/api/*`, and production HSTS.
 
-## Audit & Monitoring
-- **Audit logging:** All significant data mutations (creates, updates, deletes) are logged with a timestamp, user ID, and the nature of the change.
-- **Login monitoring:** Successful and failed login attempts are logged to monitor for suspicious activities.
-- **Action logging:** Admin actions include records of previous and new values for critical business entities (e.g., price changes, status updates).
-- **Log sanitization:** Logs are sanitized to ensure passwords, session tokens, NIDs, and other personally identifiable information (PII) are never written to log files.
+---
 
-## Database Security
-- **Least-privilege access:** The application connects to PostgreSQL using a dedicated database user with the minimum required permissions (e.g., CRUD operations only, no schema modification rights).
-- **Migration user:** A separate, highly privileged administrative user is utilized exclusively during deployment for schema migrations.
-- **Encrypted backups:** Database backups are scheduled regularly, encrypted securely, and stored in a separate geographic location.
-- **Restore testing:** Backup restoration procedures are tested on a regular schedule to guarantee data recoverability.
-- **Credential management:** Database connection strings are stored securely in environment variables and are never hardcoded.
+## 2. PLANNED & DEFERRED SECURITY CONTROLS
 
-## Dependency & Deployment
-- **Dependency auditing:** Regular security audits of third-party dependencies are conducted (e.g., using `pnpm audit` in CI/CD pipelines).
-- **Git hygiene:** Private keys, certificates, and sensitive configuration files are strictly excluded from version control via `.gitignore`.
-- **Environment variables:** `.env` files are never committed to the repository.
-- **Code reviews:** All pull requests are evaluated against a security-focused code review checklist prior to merging.
+The following security controls are specified in architecture but deferred to future implementation phases:
+
+### Authentication Architecture (Deferred to Phase 2)
+- **Password Hashing:** Argon2id is locked as the password hashing algorithm. Plain-text passwords will never be logged or stored.
+- **Session Tokens:** Delivered via `HttpOnly`, `SameSite=Lax/Strict`, `Secure` cookies. Database stores SHA-256 hashes (`sessionTokenHash`).
+- **Session Lifecycle & Rate Limiting:** Session rotation, revocation, and exponential backoff rate limiting per IP and per account.
+
+### Runtime Authenticated Encryption Services (Deferred to Phase 3)
+- **AES-256-GCM Runtime Services:** Server-side encryption and decryption routines for customer NID numbers and bank account numbers.
+- **Keyed HMAC Generator:** Server-side HMAC-SHA256 generator utilizing a secret server pepper stored outside the database.
+
+### Private Object Storage & Upload Security (Deferred to Phase 3+)
+- **Storage Isolation & Signed URLs:** Sensitive customer documents (NID images, utility bills) stored in private object storage with short-lived signed URLs.
+
+### Production Role Separation & Database Hardening (Deferred to Deployment Phase)
+- **Least-Privilege Database Roles:** Local development uses a privileged `bike_admin` user for schema migration convenience. Production deployment must separate administrative migration roles from runtime least-privilege CRUD application roles.
+- **Nonce-Based Content Security Policy (CSP):** A strict nonce-based Content Security Policy will be configured upon finalization of production hosting and asset domains.

@@ -13,6 +13,7 @@ This file instructs every AI coding agent (Claude, Gemini, or other) working on 
    - `docs/DATABASE_DESIGN.md` — planned data model
    - `docs/PRODUCT_SPEC.md` — business requirements
    - `docs/SECURITY_REQUIREMENTS.md` — security constraints
+   - `docs/SEO_REQUIREMENTS.md` — SEO requirements and guidelines
    - `docs/UI_DESIGN_SYSTEM.md` — design system
    - `docs/DECISIONS.md` — locked decisions
    - `docs/CUSTOMER_ACCOUNT_DECISION.md` — customer account policy
@@ -20,78 +21,89 @@ This file instructs every AI coding agent (Claude, Gemini, or other) working on 
 3. Inspect the existing code instead of assuming its structure.
 4. Do not assume unimplemented features exist. Check the code.
 
-## Work Process
+## Mandatory Coding & Architecture Rules
 
-5. Work on only one bounded phase at a time as defined in `docs/IMPLEMENTATION_PLAN.md`.
-6. Do not begin a new phase without explicit user approval.
-7. Avoid unrelated refactoring. Stay focused on the current phase scope.
-8. Stop and report actual errors instead of hiding, bypassing, or fabricating success.
+### 1. Bounded Phase Workflow
+- Work on only one bounded phase at a time as defined in `docs/IMPLEMENTATION_PLAN.md`.
+- Do not begin a new phase without explicit user approval.
+- Avoid unrelated refactoring. Stay focused on the current phase scope.
+- Stop and report actual errors instead of hiding, bypassing, or fabricating success.
 
-## Code Quality
+### 2. Strict TypeScript & Code Quality
+- Use strict TypeScript. Do not disable `strict` mode in `tsconfig.json`.
+- Do not use `any` unless technically unavoidable and documented with a comment explaining why.
+- Keep files and components focused and reasonably small (prefer under 200 lines per file).
+- Validate every server-side input using Zod schemas.
 
-9. Use strict TypeScript. Do not disable `strict` mode in `tsconfig.json`.
-10. Do not use `any` unless technically unavoidable and documented with a comment explaining why.
-11. Keep files and components focused and reasonably small (prefer under 200 lines per file).
-12. Validate every server-side input using Zod schemas.
+### 3. Architecture Separation
+Maintain clear separation between:
+- Public UI (customer-facing pages)
+- Admin UI (management pages)
+- Domain logic (business rules)
+- Database access (Prisma queries and transactions)
+- Validation (Zod schemas)
+- Authentication (login, session management)
+- Authorization (permission checks)
+- File storage (upload handling, private storage)
+- Financial calculations (server-side only)
 
-## Architecture Separation
+### 4. Security Baseline & CI Gate Rules
+- The security audit (`pnpm audit --audit-level=high`) is a **blocking CI gate**. `continue-on-error` or exit-code suppression is strictly prohibited.
+- Root dependency overrides for pnpm 11 must be placed in `pnpm-workspace.yaml`, not `package.json`.
+- Direct duplicate dependencies must not be added to `package.json` merely to influence transitive package resolution.
+- Enforce authorization on the server for every protected action. Hidden UI controls are for UX only and are never security controls.
+- `robots.txt` and `noindex` headers are crawler directives, NOT security controls. Real server authorization is mandatory.
+- Never claim planned security controls are implemented when they are not.
+- Never weaken security controls or bypass validation merely to make tests pass.
+- Sensitive fields (NID numbers, bank account numbers) require authenticated encryption at rest. Duplicate lookup uses keyed HMAC with an external pepper.
+- Admin session records store token hashes (`sessionTokenHash`), never raw reusable session tokens.
+- Never expose NID numbers, bank account numbers, addresses, phone numbers, financial records, receipts, or private documents on any public page, API, metadata tag, or log.
 
-13. Maintain clear separation between:
-    - Public UI (customer-facing pages)
-    - Admin UI (management pages)
-    - Domain logic (business rules)
-    - Database access (Prisma queries and transactions)
-    - Validation (Zod schemas)
-    - Authentication (login, session management)
-    - Authorization (permission checks)
-    - File storage (upload handling, private storage)
-    - Financial calculations (server-side only)
+### 5. Financial Integrity
+- Never use JavaScript floating-point arithmetic for money. Use PostgreSQL Decimal-compatible values.
+- Calculate all financial totals and outstanding balances server-side. Do not store manually editable remaining balance fields.
+- Store every payment as a separate auditable transaction record in an append-only ledger.
+- Never silently edit or delete a posted payment. Use explicit void or reversal records with documented reasons.
+- Keep public bike display status (`AVAILABLE`, `SOLD`) separate from financial settlement status.
+- Use database transactions for multi-record financial workflows.
 
-## Security
+### 6. SEO & Metadata Rules
+- Read `docs/SEO_REQUIREMENTS.md` before working on any public-facing pages.
+- Root layout (`layout.tsx`) defines global metadata defaults. Canonical URLs (`alternates.canonical`) and Open Graph URLs (`openGraph.url`) belong to their respective page components (e.g., `page.tsx`), not the global layout.
+- Private routes (`/admin/*`, `/api/*`) require `noindex, nofollow, noarchive` metadata and HTTP headers.
+- When indexing is disabled (`SITE_INDEXING_ENABLED="false"`), `sitemap.ts` must return an empty array (`[]`) rather than publishing localhost URLs.
+- Do not generate fake structured data (JSON-LD), fake reviews, fake aggregate ratings, or artificial inventory counts.
+- Sitemap entries must contain only canonical, publicly accessible URLs returning HTTP 200. Nonexistent or placeholder routes must never be included in the sitemap.
 
-14. Enforce authorization on the server, not only through hidden UI controls.
-15. Never expose NID numbers, bank account numbers, addresses, phone numbers, financial records, receipts, or private documents on any public page or API.
-16. Never use JavaScript floating-point arithmetic for money. Use PostgreSQL Decimal-compatible values.
-17. Store every payment as a separate auditable transaction record.
-18. Never silently edit or delete a posted payment. Use reversal or void records for financial corrections.
-19. Keep public bike display status separate from financial-settlement status.
-20. Use database transactions for multi-record financial workflows.
+### 7. Privacy and Git Hygiene
+- Never commit:
+  - `.env` files or any file containing real credentials
+  - Customer documents or NID images
+  - Database dumps or backups containing customer data
+  - Real customer information in any file
+  - Generated secrets, tokens, or keys
+  - Migration lock overrides (`migration_lock.toml` should be committed with actual migrations, but `.env` must not)
+- Never use real personal information in seeds, tests, or fixtures.
+- Never log sensitive data (passwords, tokens, NID numbers, bank accounts).
 
-## Privacy and Git Hygiene
-
-21. Never commit:
-    - `.env` files or any file containing real credentials
-    - Customer documents or NID images
-    - Database dumps or backups containing customer data
-    - Real customer information in any file
-    - Generated secrets, tokens, or keys
-22. Never use real personal information in seeds, tests, or fixtures.
-23. Never log sensitive data (passwords, tokens, NID numbers, bank accounts).
-
-## Verification
-
-24. Before claiming any phase is complete, run and confirm passing results for:
-    ```
-    pnpm lint
-    pnpm typecheck
-    pnpm build
-    ```
-25. Run relevant tests if they exist.
-26. Do not suppress TypeScript or ESLint errors to obtain a false pass.
-
-## Documentation Updates
-
-27. After every phase, update:
-    - `docs/PROJECT_STATUS.md` — with current state, commit, verification results
-    - `docs/HANDOFF.md` — with exact next task for the next agent
-28. Report in your final response:
-    - Changed files
-    - Commands run
-    - Test results
-    - Current branch
-    - Commit SHA
-    - Push result
-    - Any unresolved issue
+### 8. Verification & Documentation Updates
+- Before claiming any phase is complete, run and confirm passing results for:
+  ```bash
+  pnpm install --frozen-lockfile
+  pnpm why sharp
+  pnpm why postcss
+  pnpm lint
+  pnpm typecheck
+  pnpm build
+  pnpm exec prisma validate
+  pnpm audit --audit-level=high
+  git diff --check
+  ```
+- Run relevant tests if they exist. Do not suppress TypeScript or ESLint errors to obtain a false pass.
+- After every phase, update:
+  - `docs/PROJECT_STATUS.md` — with current state, commit, verification results
+  - `docs/HANDOFF.md` — with exact next task for the next agent
+- Report in your final response: changed files, commands run, test results, current branch, commit SHA, push result, and any unresolved issues.
 
 ## Technology Stack (Locked)
 

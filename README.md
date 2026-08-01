@@ -1,122 +1,140 @@
-# Bike Management System
+# Bike Management System (Sristy-Dristy Bike House)
 
-A full-stack motorcycle dealership management system for **Sristy-Dristy Bike House** (Sristy-Dristy Enterprise).
+A production-grade pre-owned motorcycle dealership management system and public showroom website.
 
-## Current Status
+- **Customer-Facing Name:** Sristy-Dristy Bike House
+- **Legal Business Name:** Sristy-Dristy Enterprise
+- **Repository:** `https://github.com/WadudMahmudJoy/Bike-Management-System`
 
-**Phase 0 — Foundation and Documentation** is complete.
-
-This repository contains the project foundation: Next.js application skeleton, Prisma configuration, design system, and comprehensive project documentation. No business modules (database schema, authentication, customer management, inventory, sales, payments) are implemented yet.
+---
 
 ## Technology Stack
 
-| Layer | Technology |
-|---|---|
-| Framework | Next.js (App Router) |
-| Language | TypeScript (strict mode) |
-| Styling | Tailwind CSS |
-| Database | PostgreSQL (planned) |
-| ORM | Prisma |
-| Validation | Zod |
-| Package Manager | pnpm |
-| Linting | ESLint |
+- **Framework:** Next.js 16 (App Router full-stack monolith)
+- **Language:** TypeScript (strict mode)
+- **Styling:** Tailwind CSS 4
+- **Database & ORM:** PostgreSQL 18 & Prisma 7 (`@prisma/adapter-pg`)
+- **Validation:** Zod
+- **Package Manager:** pnpm 11 (`packageManager: pnpm@11.1.2`, root overrides in `pnpm-workspace.yaml`)
+- **Linting:** ESLint 9
 
-## Prerequisites
+---
 
-- Node.js 20+
-- pnpm 9+
-- PostgreSQL 15+ (required from Phase 1 onward)
+## Project Status
 
-## Getting Started
+- **Phase 0 (Foundation):** Complete
+- **Phase 0.5 (Baseline & Hardening):** Complete
+- **Phase 0.5.1 (Dependency Security Gate & SEO Metadata Correction):** Complete
+- **Phase 0.5.2 (GitHub Actions Runtime Correction):** Complete
+- **Phase 1 & Phase 1.1 (PostgreSQL Environment & Schema Corrections):** Implemented on feature branch `phase-1/postgres-prisma-schema` (PR #1 pending review)
+- **Phase 2 (Admin Authentication & Admin Shell):** NOT APPROVED — Pending PR #1 review and explicit user permission.
 
-```bash
-# Clone the repository
-git clone https://github.com/WadudMahmudJoy/Bike-Management-System.git
-cd Bike-Management-System
+---
 
-# Install dependencies
-pnpm install
+## Local Development & Database Setup Guide (Windows PowerShell)
 
-# Copy environment template
-cp .env.example .env
-# Edit .env with your actual database credentials
+Follow these exact steps to set up the local PostgreSQL database and application environment:
 
-# Run development server
-pnpm dev
+### 1. Create Local Environment Configuration (`.env`)
+Create a local `.env` file (Git-ignored) based on `.env.example`:
+
+```powershell
+Copy-Item .env.example .env
 ```
 
-## Available Commands
+Developers MUST set a secure local password in `.env` and update both database connection URLs:
+- `POSTGRES_USER="bike_admin"`
+- `POSTGRES_PASSWORD="SET_YOUR_LOCAL_DEVELOPMENT_PASSWORD"`
+- `POSTGRES_DB="bike_management_dev"`
+- `POSTGRES_SHADOW_DB="bike_management_shadow"`
+- `POSTGRES_PORT="5434"`
+- `DATABASE_URL="postgresql://bike_admin:SET_YOUR_LOCAL_DEVELOPMENT_PASSWORD@127.0.0.1:5434/bike_management_dev?schema=public"`
+- `SHADOW_DATABASE_URL="postgresql://bike_admin:SET_YOUR_LOCAL_DEVELOPMENT_PASSWORD@127.0.0.1:5434/bike_management_shadow?schema=public"`
 
-| Command | Description |
-|---|---|
-| `pnpm dev` | Start development server |
-| `pnpm build` | Build for production |
-| `pnpm start` | Start production server |
-| `pnpm lint` | Run ESLint |
-| `pnpm typecheck` | Run TypeScript type checking |
+### 2. Start PostgreSQL Container
+Start the PostgreSQL 18 development and shadow databases (mounts named volume at `/var/lib/postgresql` and executes `./docker/postgres/init/01-create-shadow-database.sh` on first boot):
 
-## Environment Setup
-
-Copy `.env.example` to `.env` and fill in your credentials:
-
-```
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
+```powershell
+docker compose up -d --wait
 ```
 
-> **Security Warning**: Never commit `.env` files, real credentials, customer data, NID images, or database dumps to version control. The `.gitignore` is configured to exclude these files.
+### 3. Check Container Health
+Verify that the PostgreSQL container is running and healthy:
 
-## Project Structure
-
-```
-├── AGENTS.md                  # AI coding agent instructions
-├── README.md                  # This file
-├── docs/                      # Project documentation
-│   ├── ARCHITECTURE.md        # System architecture
-│   ├── CUSTOMER_ACCOUNT_DECISION.md  # Customer account policy
-│   ├── DATABASE_DESIGN.md     # Planned database schema
-│   ├── DECISIONS.md           # Architecture and product decisions
-│   ├── HANDOFF.md             # Handoff notes for next agent/phase
-│   ├── IMPLEMENTATION_PLAN.md # Phase-by-phase implementation plan
-│   ├── PRODUCT_SPEC.md        # Full product specification
-│   ├── PROJECT_STATUS.md      # Current project status
-│   ├── SECURITY_REQUIREMENTS.md  # Security requirements
-│   ├── TESTING_CHECKLIST.md   # Testing verification checklist
-│   └── UI_DESIGN_SYSTEM.md    # Design system documentation
-├── prisma/
-│   └── schema.prisma          # Prisma schema (foundation only)
-├── src/
-│   └── app/
-│       ├── admin/page.tsx     # Admin placeholder
-│       ├── api/health/route.ts # Health check endpoint
-│       ├── globals.css        # Global styles and design tokens
-│       ├── layout.tsx         # Root layout
-│       └── page.tsx           # Homepage
-├── .env.example               # Environment variable template
-├── package.json               # Dependencies and scripts
-├── tsconfig.json              # TypeScript configuration (strict)
-└── next.config.ts             # Next.js configuration
+```powershell
+docker compose ps
 ```
 
-## Documentation
+### 4. Apply Database Migrations
+Apply database migrations (includes custom CHECK constraints, partial cover index, and payment/expense immutability triggers):
 
-All project documentation is in the `docs/` directory. Key documents:
+```powershell
+pnpm exec prisma migrate dev
+```
 
-- **[Product Specification](docs/PRODUCT_SPEC.md)** — Complete MVP feature requirements
-- **[Architecture](docs/ARCHITECTURE.md)** — System architecture and design decisions
-- **[Database Design](docs/DATABASE_DESIGN.md)** — Planned database schema and rules
-- **[Implementation Plan](docs/IMPLEMENTATION_PLAN.md)** — Phase-by-phase development plan
-- **[Security Requirements](docs/SECURITY_REQUIREMENTS.md)** — Security constraints and policies
-- **[UI Design System](docs/UI_DESIGN_SYSTEM.md)** — Design tokens and style guidelines
-- **[Decisions](docs/DECISIONS.md)** — Dated architecture and product decisions
-- **[Handoff](docs/HANDOFF.md)** — Instructions for the next development phase
+### 5. Generate Prisma Client
+Generate the type-safe Prisma Client to `src/generated/prisma`:
 
-## Security
+```powershell
+pnpm exec prisma generate
+```
 
-- No real customer data, credentials, or private documents should ever be committed
-- All `.env` files are excluded from version control
-- Customer documents (NID, bank details) will use private storage
-- See `docs/SECURITY_REQUIREMENTS.md` for full security policy
+### 6. Seed Foundation Data
+Seed the singleton `ShopSetting` foundation data:
 
-## License
+```powershell
+pnpm exec prisma db seed
+```
 
-Private — Sristy-Dristy Enterprise
+### 7. Run Database Integrity & Trigger Test Suite
+Run the 37-point database trigger and constraint verification suite:
+
+```powershell
+pnpm db:test-integrity
+```
+
+### 8. Open Prisma Studio (Optional)
+Inspect and manage database records interactively:
+
+```powershell
+pnpm run db:studio
+```
+
+### 9. Stop PostgreSQL Container
+When finished development, stop the database container:
+
+```powershell
+docker compose down
+```
+
+---
+
+## Full Verification Suite
+
+Run full verification suite before submitting pull requests:
+
+```powershell
+pnpm install --frozen-lockfile
+docker compose config
+docker compose up -d --wait
+docker compose ps
+pnpm exec prisma format
+pnpm exec prisma validate
+pnpm exec prisma generate
+pnpm exec prisma migrate status
+pnpm exec prisma db seed
+pnpm exec prisma db seed
+pnpm db:test-integrity
+pnpm lint
+pnpm typecheck
+pnpm build
+pnpm audit --audit-level=high
+pnpm exec prisma migrate diff --exit-code --from-config-datasource --to-schema prisma/schema.prisma
+git diff --check
+```
+
+---
+
+## License & Ownership
+
+© 2026 Sristy-Dristy Enterprise. All rights reserved.

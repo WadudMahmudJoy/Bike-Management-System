@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+      - develop
+      - phase-1/*
+  pull_request:
+    branches:
+      - main
+      - develop
+
+permissions:
+  contents: read
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+  DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/bike_management_test?schema=public"
+  SHADOW_DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/bike_management_test_shadow?schema=public"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Verify Foundation, Database & Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bike_management_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Validate Prisma Schema
+        run: pnpm exec prisma validate
+
+      - name: Generate Prisma Client
+        run: pnpm exec prisma generate
+
+      - name: Deploy Prisma Migrations
+        run: pnpm exec prisma migrate deploy
+
+      - name: Check Migration Status
+        run: pnpm exec prisma migrate status
+
+      - name: Check Schema Drift
+        run: pnpm exec prisma migrate diff --exit-code --from-config-datasource --to-schema prisma/schema.prisma
+
+      - name: Seed Database (First Pass)
+        run: pnpm exec prisma db seed
+
+      - name: Seed Database (Second Pass - Idempotency Check)
+        run: pnpm exec prisma db seed
+
+      - name: Run Database Integrity Tests
+        run: pnpm db:test-integrity
+
+      - name: Run ESLint
+        run: pnpm lint
+
+      - name: Run Typecheck
+        run: pnpm typecheck
+
+      - name: Run Next.js Build
+        run: pnpm build
+
+      - name: Run Security Audit
+        run: pnpm audit --audit-level=high

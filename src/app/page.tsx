@@ -1,3 +1,19 @@
+import type { Metadata } from "next";
+import { siteConfig } from "@/lib/site-config";
+
+export const metadata: Metadata = {
+  title: `${siteConfig.businessName} | Pre-Owned Motorcycles`,
+  description: siteConfig.defaultDescription,
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    title: `${siteConfig.businessName} | Pre-Owned Motorcycles`,
+    description: siteConfig.defaultDescription,
+    url: "/",
+  },
+};
+
 const NAV_ITEMS = [
   { label: "Home", href: "/" },
   { label: "Available Bikes", href: "/bikes" },

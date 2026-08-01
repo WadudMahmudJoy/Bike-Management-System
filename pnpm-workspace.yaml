@@ -1,5 +1,10 @@
 allowBuilds:
   '@prisma/engines': true
+  esbuild: true
   prisma: true
   sharp: true
   unrs-resolver: true
+
+overrides:
+  sharp: 0.35.3
+  postcss: 8.5.25

@@ -1,65 +1,108 @@
 # System Architecture
 
+## Overview
+This document describes the full-stack architecture of the **Bike Management System** (Customer-facing name: **Sristy-Dristy Bike House**, Legal name: **Sristy-Dristy Enterprise**).
+
+---
+
 ## Technology Stack
-- **Runtime**: Node.js
-- **Framework**: Next.js 16 with App Router
-- **Language**: TypeScript (strict mode)
-- **Styling**: Tailwind CSS 4
-- **Database**: PostgreSQL
-- **ORM**: Prisma
-- **Validation**: Zod
-- **Package Manager**: pnpm
-- **Linting**: ESLint
+
+| Layer | Technology | Status / Details |
+|---|---|---|
+| **Runtime** | Node.js | v22+ (ESNext target) |
+| **Framework** | Next.js 16 (App Router) | Full-stack TypeScript monolith |
+| **Language** | TypeScript | Strict mode enabled (`tsconfig.json`) |
+| **Styling** | Tailwind CSS 4 | Custom design system tokens (`globals.css`) |
+| **Database** | PostgreSQL 18 | Docker containerized (`postgres:18-alpine`, port 5434) |
+| **ORM** | Prisma 7 | `@prisma/adapter-pg` driver adapter & `pg.Pool` |
+| **Validation** | Zod | Server & Client payload validation |
+| **Package Manager**| pnpm 11 | Locked (`packageManager: pnpm@11.1.2`, root overrides in `pnpm-workspace.yaml`) |
+| **Linting & Quality**| ESLint 9 & TypeScript CLI | Enforced via CI pipeline |
+
+---
 
 ## Architecture Pattern
-- Full-stack TypeScript monolith
-- Next.js App Router with Server Components by default
-- Client Components only where interactivity is required
-- Server Actions for mutations
-- API Routes for external endpoints (health checks, webhooks)
 
-## Directory Structure (Planned)
+The system is designed as a **Full-Stack TypeScript Monolith** using Next.js App Router:
+- **Server Components by Default:** Page layouts and data fetching are handled on the server for security, performance, and optimal SEO.
+- **Client Components where Interactive:** Form fields, interactive filters, and client-side UI state use Client Components (`"use client"`).
+- **Server Actions for Mutations:** Form submissions and record mutations execute via type-safe Server Actions.
+- **API Routes for Special Endpoints:** System endpoints (e.g., `/api/health`, dynamic `/robots.txt`, dynamic `/sitemap.xml`) use standard App Router Route Handlers.
+- **No Separate Backend Framework:** Express, NestJS, or Python services are strictly prohibited.
+
+---
+
+## Directory Structure
+
 ```
-src/
-  app/                    # Next.js App Router pages and layouts
-    (public)/             # Public-facing routes (grouped)
-    (admin)/              # Admin routes (grouped)
-    api/                  # API routes
-  lib/                    # Shared utilities and configuration
-    db/                   # Database client and helpers
-    validation/           # Zod schemas
-  types/                  # TypeScript type definitions
-prisma/
-  schema.prisma           # Database schema
-docs/                     # Project documentation
-public/                   # Static assets
+Bike-Management-System/
+├── .github/
+│   ├── dependabot.yml         # Weekly dependency update checks
+│   └── workflows/
+│       └── ci.yml             # GitHub Actions CI pipeline with PostgreSQL 18 service container
+├── docker/
+│   └── postgres/
+│       └── init/
+│           └── 01-create-shadow-database.sh # Creates POSTGRES_SHADOW_DB on first boot (set -eu)
+├── docs/                      # Comprehensive project documentation
+│   ├── ARCHITECTURE.md        # System architecture (this document)
+│   ├── CUSTOMER_ACCOUNT_DECISION.md # Customer account policy & linking design
+│   ├── DATABASE_DESIGN.md     # Authoritative database design specification
+│   ├── DECISIONS.md           # Dated architectural and product decisions
+│   ├── HANDOFF.md             # Handoff notes for future agent sessions
+│   ├── IMPLEMENTATION_PLAN.md # 14-phase development roadmap
+│   ├── PRODUCT_SPEC.md        # Complete MVP product requirements
+│   ├── PROJECT_STATUS.md      # Current phase status and verification results
+│   ├── SECURITY_REQUIREMENTS.md # Implemented and planned security controls
+│   ├── SEO_REQUIREMENTS.md    # SEO technical guidelines and metadata policies
+│   ├── TESTING_CHECKLIST.md   # Verification checklist across phases
+│   └── UI_DESIGN_SYSTEM.md    # Design system, color tokens, and UI layout rules
+├── prisma/
+│   ├── migrations/            # Applied Prisma migrations & custom SQL
+│   │   ├── 20260801174101_init_dealership_schema/ # Initial migration with CHECK constraints & triggers
+│   │   └── 20260802000215_phase1_integrity_corrections/ # Corrective migration (normalized email & hardened triggers)
+│   ├── schema.prisma          # Complete 26-model dealership schema specification
+│   └── seed.ts                # Idempotent ShopSetting seed foundation
+├── public/                    # Static public assets
+├── scripts/
+│   └── test-database-integrity.ts # 37-point runtime integrity test suite (pnpm db:test-integrity)
+├── src/
+│   ├── app/                   # Next.js App Router pages and handlers
+│   │   ├── admin/             # Administrative routes
+│   │   │   └── page.tsx       # Admin panel placeholder (noindex metadata)
+│   │   ├── api/               # API route handlers
+│   │   │   └── health/        # Health check endpoint (`/api/health`)
+│   │   ├── globals.css        # Tailwind CSS imports and design tokens
+│   │   ├── layout.tsx         # Root layout with global metadata defaults & fonts
+│   │   ├── page.tsx           # Public homepage with page-specific canonical metadata
+│   │   ├── robots.ts          # Metadata route handler for `/robots.txt`
+│   │   └── sitemap.ts         # Metadata route handler for `/sitemap.xml`
+│   ├── generated/
+│   │   └── prisma/            # Generated Prisma 7 Client output
+│   └── lib/
+│       ├── prisma.ts          # Server-only Prisma client singleton using @prisma/adapter-pg
+│       └── site-config.ts     # Server-safe SEO & site URL configuration
+├── .env.example               # Non-secret environment variable template
+├── .gitattributes             # Line ending rules (*.sh eol=lf, *.sql eol=lf)
+├── .gitignore                 # Exclusion rules for secrets, builds, & private uploads
+├── AGENTS.md                  # Instructions for AI coding agents
+├── compose.yaml               # Docker Compose file for PostgreSQL 18 & shadow database
+├── next.config.ts             # Next.js configuration with security headers
+├── package.json               # Dependencies, scripts, and packageManager lock
+├── pnpm-workspace.yaml        # pnpm 11 build script permissions (`allowBuilds`) & root overrides
+├── prisma.config.ts           # Prisma 7 environment & seed configuration
+├── README.md                  # Project overview, database setup, and verification guide
+└── tsconfig.json              # Strict TypeScript compiler options
 ```
 
-## Key Architectural Decisions
-- Server Components by default for performance and security
-- All form validation duplicated: client-side (UX) and server-side (security) using Zod
-- Financial calculations performed server-side only
-- No floating-point arithmetic for money — use Decimal-compatible types
-- Database transactions for multi-record financial operations
-- Separate public and admin route groups with independent layouts
-- Private file storage for sensitive documents (NID, customer docs)
-- Audit logging for all significant data mutations
+---
 
-## Security Architecture
-- Server-side session management with HttpOnly cookies
-- Server-side authorization checks on every protected route
-- CSRF protection
-- Input sanitization and validation via Zod
-- No public admin registration
-- Rate limiting on authentication endpoints
-- Content Security Policy headers
-- Sensitive field encryption at rest
+## Database Architecture & Immutability Layer (Phase 1 & Phase 1.1)
 
-## Data Flow
-The data flow within the system relies on a unidirectional server-focused model:
-1. **Public Site Requests**: End users access the public site. Requests are handled by Next.js Server Components, which securely query the PostgreSQL database via Prisma ORM and return rendered HTML.
-2. **Admin Site Access**: Admin users access the protected admin routes. Every request undergoes a server-side authorization check before the layout or page is rendered.
-3. **Mutations and Actions**: Form submissions and state changes are sent via Next.js Server Actions.
-4. **Validation Pipeline**: Incoming data from Server Actions is strictly validated against Zod schemas. This ensures no malformed or unexpected data enters the business logic layer.
-5. **Database Transactions**: Validated actions interact with the database. Multi-record operations (e.g., creating a sale, updating inventory, generating payment records) are executed within atomic database transactions to ensure consistency.
-6. **Audit Logging**: Any significant mutation to the data (creation, modification, deletion) triggers a write to the audit log table within the same transaction, maintaining a secure trail of all actions.
+1. **26 Normalized Relational Entities:** Schema defines 26 models in `prisma/schema.prisma` covering Administration, Customers, Bike Inventory, Purchasing, Sales, Operations, Offers, Requests, Inquiries, Bookings, and Settings. Includes `AdminUser.normalizedEmail` for case-insensitive authentication uniqueness.
+2. **Database Engine Immutability Triggers:**
+   - `PurchasePayment`, `SalePayment` & `Expense`: Block `DELETE` and core field `UPDATE` using `IS DISTINCT FROM`. Require new records to start unvoided. Allow voiding (`isVoided = true`) only with complete metadata (`voidedAt`, `voidedByAdminId`, non-empty `voidReason`). Block unvoiding.
+   - `AuditLog` & `BikeStatusHistory`: Block `UPDATE` and `DELETE` (pure append-only).
+3. **Check Constraints & Partial Indexes:** Custom PostgreSQL CHECK constraints enforce monetary positivity, year boundaries (1900–2100), price logic (`finalPrice = listedPrice - discountAmount`), and encryption bundle completeness. Partial unique index `idx_bike_image_cover` limits cover images to max 1 per bike.
+4. **Server-Only Prisma Singleton (`src/lib/prisma.ts`):** Uses `@prisma/adapter-pg` and `pg.Pool` to manage database connections while ensuring client code cannot leak into browser bundles.
+5. **Runtime Integrity Test Suite (`pnpm db:test-integrity`):** Executable 37-point integrity test script verifying all triggers, constraints, and index rules against live PostgreSQL inside a rolled-back transaction.
