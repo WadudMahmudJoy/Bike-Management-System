@@ -77,8 +77,14 @@ jobs:
       - name: Check Schema Drift
         run: pnpm exec prisma migrate diff --exit-code --from-config-datasource --to-schema prisma/schema.prisma
 
-      - name: Seed Database
+      - name: Seed Database (First Pass)
         run: pnpm exec prisma db seed
+
+      - name: Seed Database (Second Pass - Idempotency Check)
+        run: pnpm exec prisma db seed
+
+      - name: Run Database Integrity Tests
+        run: pnpm db:test-integrity
 
       - name: Run ESLint
         run: pnpm lint
