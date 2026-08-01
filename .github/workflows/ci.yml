@@ -5,6 +5,7 @@ on:
     branches:
       - main
       - develop
+      - phase-1/*
   pull_request:
     branches:
       - main
@@ -15,6 +16,7 @@ permissions:
 
 env:
   NEXT_TELEMETRY_DISABLED: "1"
+  DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/bike_management_test?schema=public"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -22,9 +24,24 @@ concurrency:
 
 jobs:
   verify:
-    name: Verify Foundation & Build
+    name: Verify Foundation, Database & Build
     runs-on: ubuntu-latest
     timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: bike_management_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
 
     steps:
       - name: Checkout repository
@@ -44,6 +61,24 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Validate Prisma Schema
+        run: pnpm exec prisma validate
+
+      - name: Generate Prisma Client
+        run: pnpm exec prisma generate
+
+      - name: Deploy Prisma Migrations
+        run: pnpm exec prisma migrate deploy
+
+      - name: Check Migration Status
+        run: pnpm exec prisma migrate status
+
+      - name: Check Schema Drift
+        run: pnpm exec prisma migrate diff --exit-code --from-config-datasource --to-schema prisma/schema.prisma
+
+      - name: Seed Database
+        run: pnpm exec prisma db seed
+
       - name: Run ESLint
         run: pnpm lint
 
@@ -52,11 +87,6 @@ jobs:
 
       - name: Run Next.js Build
         run: pnpm build
-
-      - name: Validate Prisma Foundation
-        run: pnpm exec prisma validate
-        env:
-          DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
 
       - name: Run Security Audit
         run: pnpm audit --audit-level=high
