@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../src/generated/prisma"
@@ -10,4 +5,842 @@ generator client {
 
 datasource db {
   provider = "postgresql"
+}
+
+// -----------------------------------------------------------------------------
+// ENUMS
+// -----------------------------------------------------------------------------
+
+enum AdminRole {
+  OWNER
+  ADMIN
+}
+
+enum CustomerRoleType {
+  BUYER
+  SELLER
+  POTENTIAL_BUYER
+  POTENTIAL_SELLER
+  BIKE_REQUESTER
+}
+
+enum CustomerAccountStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  CLOSED
+}
+
+enum NidStatus {
+  PENDING
+  SUBMITTED
+  VERIFIED
+  NEEDS_CORRECTION
+}
+
+enum CustomerDocumentType {
+  NID_FRONT
+  NID_BACK
+  BANK_DOCUMENT
+  SALE_AGREEMENT
+  PURCHASE_AGREEMENT
+  OTHER
+}
+
+enum BikeStatus {
+  DRAFT
+  AVAILABLE
+  RESERVED
+  SOLD
+  HIDDEN
+}
+
+enum FuelType {
+  PETROL
+  ELECTRIC
+  HYBRID
+  OTHER
+}
+
+enum BikeConditionComponent {
+  ENGINE
+  BODY
+  TYRES
+  BATTERY
+  ELECTRICAL
+  BRAKES
+  SUSPENSION
+  TRANSMISSION
+  OTHER
+}
+
+enum ConditionRating {
+  EXCELLENT
+  GOOD
+  FAIR
+  NEEDS_ATTENTION
+  UNKNOWN
+}
+
+enum BikeDocumentType {
+  REGISTRATION
+  TAX_TOKEN
+  FITNESS
+  OWNERSHIP_TRANSFER
+  PURCHASE_RECEIPT
+  SERVICE_HISTORY
+  OTHER
+}
+
+enum DocumentStatus {
+  PENDING
+  SUBMITTED
+  VERIFIED
+  NEEDS_CORRECTION
+  NOT_AVAILABLE
+}
+
+enum OwnershipTransferStatus {
+  NOT_STARTED
+  PENDING
+  IN_PROGRESS
+  COMPLETED
+  BLOCKED
+}
+
+enum PurchaseStatus {
+  DRAFT
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum SaleStatus {
+  DRAFT
+  RESERVED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum PaymentMethod {
+  CASH
+  BANK_TRANSFER
+  BKASH
+  NAGAD
+  ROCKET
+  CHEQUE
+  MIXED
+  OTHER
+}
+
+enum OfferType {
+  FIXED_DISCOUNT
+  PERCENTAGE_DISCOUNT
+  FIXED_PRICE
+}
+
+enum BikeRequestStatus {
+  NEW
+  CONTACTED
+  SEARCHING
+  MATCH_FOUND
+  CUSTOMER_NOTIFIED
+  COMPLETED
+  CANCELLED
+}
+
+enum ContactStatus {
+  NOT_CONTACTED
+  CONTACTED
+  FOLLOW_UP_REQUIRED
+  UNREACHABLE
+  CLOSED
+}
+
+enum SellBikeRequestStatus {
+  NEW
+  REVIEWING
+  CONTACTED
+  INSPECTION_SCHEDULED
+  ACCEPTED
+  REJECTED
+  COMPLETED
+  CANCELLED
+}
+
+enum InquiryStatus {
+  NEW
+  CONTACTED
+  INSPECTION_BOOKED
+  NEGOTIATING
+  COMPLETED
+  NOT_INTERESTED
+  CLOSED
+}
+
+enum InquirySource {
+  WEBSITE
+  WHATSAPP
+  PHONE
+  FACEBOOK
+  WALK_IN
+  OTHER
+}
+
+enum InspectionStatus {
+  REQUESTED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+
+enum PreferredContactMethod {
+  PHONE
+  WHATSAPP
+  EMAIL
+}
+
+enum PaymentPreference {
+  CASH
+  INSTALLMENT
+  DUE
+  NEGOTIABLE
+  OTHER
+}
+
+enum ExpenseCategory {
+  REPAIR
+  TRANSPORT
+  DOCUMENT_TRANSFER
+  MARKETING
+  UTILITIES
+  RENT
+  SALARY
+  OTHER
+}
+
+// -----------------------------------------------------------------------------
+// MODELS — ADMINISTRATION & SECURITY
+// -----------------------------------------------------------------------------
+
+model AdminUser {
+  id           String    @id @default(uuid()) @db.Uuid
+  email        String    @unique @db.VarChar(255)
+  passwordHash String    @db.Text
+  name         String    @db.VarChar(255)
+  role         AdminRole @default(ADMIN)
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime? @db.Timestamptz(3)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
+
+  sessions                   AdminSession[]
+  auditLogs                  AuditLog[]
+  createdCustomers           Customer[]          @relation("CustomerCreatedByAdmin")
+  verifiedIdentities         CustomerIdentity[]  @relation("IdentityVerifiedByAdmin")
+  verifiedCustomerDocs       CustomerDocument[]  @relation("CustomerDocVerifiedByAdmin")
+  inspectedConditions        BikeCondition[]     @relation("ConditionInspectedByAdmin")
+  verifiedBikeDocs           BikeDocument[]      @relation("BikeDocVerifiedByAdmin")
+  changedBikeStatuses        BikeStatusHistory[] @relation("StatusChangedByAdmin")
+  createdPurchases           Purchase[]          @relation("PurchaseCreatedByAdmin")
+  createdPurchasePayments    PurchasePayment[]   @relation("CreatedPurchasePayments")
+  voidedPurchasePayments     PurchasePayment[]   @relation("VoidedPurchasePayments")
+  createdSales               Sale[]              @relation("SaleCreatedByAdmin")
+  receivedSalePayments       SalePayment[]       @relation("ReceivedSalePayments")
+  voidedSalePayments         SalePayment[]       @relation("VoidedSalePayments")
+  recordedExpenses           Expense[]           @relation("ExpenseRecordedByAdmin")
+  assignedBikeRequests       BikeRequest[]       @relation("BikeRequestAssignedAdmin")
+  assignedSellBikeRequests   SellBikeRequest[]   @relation("SellBikeRequestAssignedAdmin")
+  assignedInquiries          Inquiry[]           @relation("InquiryAssignedAdmin")
+  assignedInspectionBookings InspectionBooking[] @relation("InspectionAssignedAdmin")
+}
+
+model AdminSession {
+  id               String    @id @default(uuid()) @db.Uuid
+  adminUserId      String    @db.Uuid
+  sessionTokenHash String    @unique @db.VarChar(255)
+  expiresAt        DateTime  @db.Timestamptz(3)
+  revokedAt        DateTime? @db.Timestamptz(3)
+  ipAddress        String?   @db.VarChar(45)
+  userAgent        String?   @db.Text
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+
+  admin AdminUser @relation(fields: [adminUserId], references: [id], onDelete: Restrict)
+
+  @@index([adminUserId])
+  @@index([expiresAt])
+}
+
+model AuditLog {
+  id                   String   @id @default(uuid()) @db.Uuid
+  adminUserId          String?  @db.Uuid
+  action               String   @db.VarChar(100)
+  entityType           String   @db.VarChar(100)
+  entityId             String   @db.VarChar(255)
+  previousValue        Json?
+  newValue             Json?
+  ipAddress            String?  @db.VarChar(45)
+  requestCorrelationId String?  @db.VarChar(255)
+  createdAt            DateTime @default(now()) @db.Timestamptz(3)
+
+  admin AdminUser? @relation(fields: [adminUserId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([adminUserId])
+}
+
+// -----------------------------------------------------------------------------
+// MODELS — CUSTOMER MANAGEMENT
+// -----------------------------------------------------------------------------
+
+model Customer {
+  id                 String   @id @default(uuid()) @db.Uuid
+  customerCode       String?  @unique @db.VarChar(50)
+  fullName           String   @db.VarChar(255)
+  fatherName         String?  @db.VarChar(255)
+  phone              String   @db.VarChar(50)
+  phoneNormalized    String   @db.VarChar(50)
+  whatsappNumber     String?  @db.VarChar(50)
+  whatsappNormalized String?  @db.VarChar(50)
+  email              String?  @db.VarChar(255)
+  address            String?  @db.Text
+  emergencyContact   String?  @db.VarChar(255)
+  internalNotes      String?  @db.Text
+  isArchived         Boolean  @default(false)
+  createdByAdminId   String?  @db.Uuid
+  createdAt          DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime @updatedAt @db.Timestamptz(3)
+
+  createdByAdmin     AdminUser?            @relation("CustomerCreatedByAdmin", fields: [createdByAdminId], references: [id], onDelete: SetNull)
+  roles              CustomerRole[]
+  identity           CustomerIdentity?
+  bankAccounts       CustomerBankAccount[]
+  documents          CustomerDocument[]
+  account            CustomerAccount?
+  purchases          Purchase[]            @relation("SellerPurchases")
+  sales              Sale[]                @relation("BuyerSales")
+  bikeRequests       BikeRequest[]
+  sellBikeRequests   SellBikeRequest[]
+  inquiries          Inquiry[]
+  inspectionBookings InspectionBooking[]
+
+  @@index([phoneNormalized])
+  @@index([createdAt])
+  @@index([createdByAdminId])
+}
+
+model CustomerRole {
+  id         String           @id @default(uuid()) @db.Uuid
+  customerId String           @db.Uuid
+  role       CustomerRoleType
+  assignedAt DateTime         @default(now()) @db.Timestamptz(3)
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([customerId, role])
+}
+
+model CustomerIdentity {
+  id                 String    @id @default(uuid()) @db.Uuid
+  customerId         String    @unique @db.Uuid
+  nidStatus          NidStatus @default(PENDING)
+  encryptedNidNumber String?   @db.Text
+  encryptionIv       String?   @db.VarChar(255)
+  authTag            String?   @db.VarChar(255)
+  keyVersion         Int       @default(1)
+  nidNumberHmac      String?   @unique @db.VarChar(255)
+  lastFour           String?   @db.VarChar(4)
+  submittedAt        DateTime? @db.Timestamptz(3)
+  verifiedAt         DateTime? @db.Timestamptz(3)
+  verifiedByAdminId  String?   @db.Uuid
+  notes              String?   @db.Text
+  createdAt          DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime  @updatedAt @db.Timestamptz(3)
+
+  customer        Customer   @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  verifiedByAdmin AdminUser? @relation("IdentityVerifiedByAdmin", fields: [verifiedByAdminId], references: [id], onDelete: SetNull)
+}
+
+model CustomerBankAccount {
+  id                     String   @id @default(uuid()) @db.Uuid
+  customerId             String   @db.Uuid
+  bankName               String   @db.VarChar(255)
+  accountHolderName      String   @db.VarChar(255)
+  branchName             String?  @db.VarChar(255)
+  encryptedAccountNumber String?  @db.Text
+  encryptionIv           String?  @db.VarChar(255)
+  authTag                String?  @db.VarChar(255)
+  keyVersion             Int      @default(1)
+  accountNumberLastFour  String?  @db.VarChar(4)
+  routingNumber          String?  @db.VarChar(100)
+  mobileBankingProvider  String?  @db.VarChar(100)
+  mobileBankingNumber    String?  @db.VarChar(50)
+  isDefault              Boolean  @default(false)
+  isActive               Boolean  @default(true)
+  createdAt              DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime @updatedAt @db.Timestamptz(3)
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+
+  @@index([customerId])
+}
+
+model CustomerDocument {
+  id                String               @id @default(uuid()) @db.Uuid
+  customerId        String               @db.Uuid
+  documentType      CustomerDocumentType
+  storageKey        String               @db.VarChar(512)
+  originalFileName  String               @db.VarChar(255)
+  mimeType          String               @db.VarChar(100)
+  fileSize          Int
+  status            DocumentStatus       @default(PENDING)
+  notes             String?              @db.Text
+  uploadedAt        DateTime             @default(now()) @db.Timestamptz(3)
+  verifiedAt        DateTime?            @db.Timestamptz(3)
+  verifiedByAdminId String?              @db.Uuid
+
+  customer        Customer   @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  verifiedByAdmin AdminUser? @relation("CustomerDocVerifiedByAdmin", fields: [verifiedByAdminId], references: [id], onDelete: SetNull)
+}
+
+model CustomerAccount {
+  id              String                @id @default(uuid()) @db.Uuid
+  customerId      String                @unique @db.Uuid
+  phoneNormalized String                @unique @db.VarChar(50)
+  email           String?               @unique @db.VarChar(255)
+  passwordHash    String?               @db.Text
+  phoneVerifiedAt DateTime?             @db.Timestamptz(3)
+  emailVerifiedAt DateTime?             @db.Timestamptz(3)
+  status          CustomerAccountStatus @default(PENDING_VERIFICATION)
+  lastLoginAt     DateTime?             @db.Timestamptz(3)
+  createdAt       DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime              @updatedAt @db.Timestamptz(3)
+
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+}
+
+// -----------------------------------------------------------------------------
+// MODELS — BIKE INVENTORY
+// -----------------------------------------------------------------------------
+
+model Bike {
+  id                 String     @id @default(uuid()) @db.Uuid
+  stockCode          String     @unique @db.VarChar(50)
+  slug               String     @unique @db.VarChar(255)
+  brand              String     @db.VarChar(100)
+  model              String     @db.VarChar(100)
+  variant            String?    @db.VarChar(100)
+  modelYear          Int
+  registrationYear   Int?
+  engineCapacityCc   Int
+  mileageKm          Int
+  color              String     @db.VarChar(100)
+  fuelType           FuelType   @default(PETROL)
+  registrationNumber String?    @unique @db.VarChar(100)
+  ownershipCount     Int?
+  askingPrice        Decimal?   @db.Decimal(14, 2)
+  isNegotiable       Boolean    @default(true)
+  description        String?    @db.Text
+  knownIssues        String?    @db.Text
+  inspectionNotes    String?    @db.Text
+  isFeatured         Boolean    @default(false)
+  status             BikeStatus @default(DRAFT)
+  publishedAt        DateTime?  @db.Timestamptz(3)
+  archivedAt         DateTime?  @db.Timestamptz(3)
+  createdAt          DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime   @updatedAt @db.Timestamptz(3)
+
+  images             BikeImage[]
+  conditions         BikeCondition[]
+  documents          BikeDocument[]
+  statusHistory      BikeStatusHistory[]
+  purchase           Purchase?
+  sale               Sale?
+  expenses           Expense[]
+  offerBikes         OfferBike[]
+  inquiries          Inquiry[]
+  inspectionBookings InspectionBooking[]
+
+  @@index([status])
+  @@index([brand, model])
+  @@index([modelYear])
+  @@index([askingPrice])
+  @@index([createdAt])
+}
+
+model BikeImage {
+  id           String   @id @default(uuid()) @db.Uuid
+  bikeId       String   @db.Uuid
+  storageKey   String   @db.VarChar(512)
+  publicUrl    String?  @db.VarChar(1024)
+  altText      String?  @db.VarChar(255)
+  width        Int?
+  height       Int?
+  displayOrder Int      @default(0)
+  isCover      Boolean  @default(false)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  bike Bike @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+
+  @@index([bikeId, displayOrder])
+}
+
+model BikeCondition {
+  id                 String                 @id @default(uuid()) @db.Uuid
+  bikeId             String                 @db.Uuid
+  component          BikeConditionComponent
+  rating             ConditionRating
+  notes              String?                @db.Text
+  inspectedByAdminId String?                @db.Uuid
+  inspectedAt        DateTime               @default(now()) @db.Timestamptz(3)
+
+  bike             Bike       @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+  inspectedByAdmin AdminUser? @relation("ConditionInspectedByAdmin", fields: [inspectedByAdminId], references: [id], onDelete: SetNull)
+
+  @@unique([bikeId, component])
+}
+
+model BikeDocument {
+  id                String           @id @default(uuid()) @db.Uuid
+  bikeId            String           @db.Uuid
+  documentType      BikeDocumentType
+  status            DocumentStatus   @default(PENDING)
+  privateStorageKey String?          @db.VarChar(512)
+  expiryDate        DateTime?        @db.Timestamptz(3)
+  verifiedAt        DateTime?        @db.Timestamptz(3)
+  verifiedByAdminId String?          @db.Uuid
+  notes             String?          @db.Text
+  createdAt         DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime         @updatedAt @db.Timestamptz(3)
+
+  bike            Bike       @relation(fields: [bikeId], references: [id], onDelete: Restrict)
+  verifiedByAdmin AdminUser? @relation("BikeDocVerifiedByAdmin", fields: [verifiedByAdminId], references: [id], onDelete: SetNull)
+}
+
+model BikeStatusHistory {
+  id               String     @id @default(uuid()) @db.Uuid
+  bikeId           String     @db.Uuid
+  previousStatus   BikeStatus
+  newStatus        BikeStatus
+  changedByAdminId String?    @db.Uuid
+  reason           String     @db.Text
+  changedAt        DateTime   @default(now()) @db.Timestamptz(3)
+
+  bike           Bike       @relation(fields: [bikeId], references: [id], onDelete: Restrict)
+  changedByAdmin AdminUser? @relation("StatusChangedByAdmin", fields: [changedByAdminId], references: [id], onDelete: SetNull)
+
+  @@index([bikeId])
+  @@index([changedAt])
+}
+
+// -----------------------------------------------------------------------------
+// MODELS — PURCHASING (SHOP BUYS BIKE FROM SELLER)
+// -----------------------------------------------------------------------------
+
+model Purchase {
+  id                      String                  @id @default(uuid()) @db.Uuid
+  purchaseNumber          String                  @unique @db.VarChar(50)
+  bikeId                  String                  @unique @db.Uuid
+  sellerId                String                  @db.Uuid
+  purchaseDate            DateTime                @db.Timestamptz(3)
+  agreedPrice             Decimal                 @db.Decimal(14, 2)
+  sellerPaymentDueDate    DateTime?               @db.Timestamptz(3)
+  status                  PurchaseStatus          @default(DRAFT)
+  documentStatus          DocumentStatus          @default(PENDING)
+  ownershipTransferStatus OwnershipTransferStatus @default(NOT_STARTED)
+  confirmedAt             DateTime?               @db.Timestamptz(3)
+  completedAt             DateTime?               @db.Timestamptz(3)
+  cancelledAt             DateTime?               @db.Timestamptz(3)
+  cancellationReason      String?                 @db.Text
+  notes                   String?                 @db.Text
+  createdByAdminId        String                  @db.Uuid
+  createdAt               DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime                @updatedAt @db.Timestamptz(3)
+
+  bike           Bike              @relation(fields: [bikeId], references: [id], onDelete: Restrict)
+  seller         Customer          @relation("SellerPurchases", fields: [sellerId], references: [id], onDelete: Restrict)
+  createdByAdmin AdminUser         @relation("PurchaseCreatedByAdmin", fields: [createdByAdminId], references: [id], onDelete: Restrict)
+  payments       PurchasePayment[]
+  expenses       Expense[]
+
+  @@index([sellerId])
+  @@index([purchaseDate])
+  @@index([status])
+}
+
+model PurchasePayment {
+  id               String        @id @default(uuid()) @db.Uuid
+  purchaseId       String        @db.Uuid
+  amount           Decimal       @db.Decimal(14, 2)
+  paidAt           DateTime      @db.Timestamptz(3)
+  paymentMethod    PaymentMethod
+  referenceNumber  String?       @db.VarChar(100)
+  receiptNumber    String        @unique @db.VarChar(100)
+  notes            String?       @db.Text
+  createdByAdminId String        @db.Uuid
+  isVoided         Boolean       @default(false)
+  voidedAt         DateTime?     @db.Timestamptz(3)
+  voidedByAdminId  String?       @db.Uuid
+  voidReason       String?       @db.Text
+  createdAt        DateTime      @default(now()) @db.Timestamptz(3)
+
+  purchase       Purchase   @relation(fields: [purchaseId], references: [id], onDelete: Restrict)
+  createdByAdmin AdminUser  @relation("CreatedPurchasePayments", fields: [createdByAdminId], references: [id], onDelete: Restrict)
+  voidedByAdmin  AdminUser? @relation("VoidedPurchasePayments", fields: [voidedByAdminId], references: [id], onDelete: SetNull)
+
+  @@index([purchaseId])
+  @@index([paidAt])
+}
+
+// -----------------------------------------------------------------------------
+// MODELS — SALES (SHOP SELLS BIKE TO BUYER)
+// -----------------------------------------------------------------------------
+
+model Sale {
+  id                      String                  @id @default(uuid()) @db.Uuid
+  saleNumber              String                  @unique @db.VarChar(50)
+  bikeId                  String                  @unique @db.Uuid
+  buyerId                 String                  @db.Uuid
+  saleDate                DateTime                @db.Timestamptz(3)
+  listedPrice             Decimal                 @db.Decimal(14, 2)
+  discountAmount          Decimal                 @default(0.00) @db.Decimal(14, 2)
+  finalPrice              Decimal                 @db.Decimal(14, 2)
+  dueDate                 DateTime?               @db.Timestamptz(3)
+  paymentTerms            String?                 @db.Text
+  status                  SaleStatus              @default(DRAFT)
+  documentStatus          DocumentStatus          @default(PENDING)
+  ownershipTransferStatus OwnershipTransferStatus @default(NOT_STARTED)
+  confirmedAt             DateTime?               @db.Timestamptz(3)
+  completedAt             DateTime?               @db.Timestamptz(3)
+  cancelledAt             DateTime?               @db.Timestamptz(3)
+  cancellationReason      String?                 @db.Text
+  notes                   String?                 @db.Text
+  createdByAdminId        String                  @db.Uuid
+  createdAt               DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt               DateTime                @updatedAt @db.Timestamptz(3)
+
+  bike           Bike          @relation(fields: [bikeId], references: [id], onDelete: Restrict)
+  buyer          Customer      @relation("BuyerSales", fields: [buyerId], references: [id], onDelete: Restrict)
+  createdByAdmin AdminUser     @relation("SaleCreatedByAdmin", fields: [createdByAdminId], references: [id], onDelete: Restrict)
+  payments       SalePayment[]
+  expenses       Expense[]
+
+  @@index([buyerId])
+  @@index([saleDate])
+  @@index([status])
+  @@index([dueDate])
+}
+
+model SalePayment {
+  id                String        @id @default(uuid()) @db.Uuid
+  saleId            String        @db.Uuid
+  amount            Decimal       @db.Decimal(14, 2)
+  receivedAt        DateTime      @db.Timestamptz(3)
+  paymentMethod     PaymentMethod
+  referenceNumber   String?       @db.VarChar(100)
+  receiptNumber     String        @unique @db.VarChar(100)
+  notes             String?       @db.Text
+  receivedByAdminId String        @db.Uuid
+  isVoided          Boolean       @default(false)
+  voidedAt          DateTime?     @db.Timestamptz(3)
+  voidedByAdminId   String?       @db.Uuid
+  voidReason        String?       @db.Text
+  createdAt         DateTime      @default(now()) @db.Timestamptz(3)
+
+  sale            Sale       @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  receivedByAdmin AdminUser  @relation("ReceivedSalePayments", fields: [receivedByAdminId], references: [id], onDelete: Restrict)
+  voidedByAdmin   AdminUser? @relation("VoidedSalePayments", fields: [voidedByAdminId], references: [id], onDelete: SetNull)
+
+  @@index([saleId])
+  @@index([receivedAt])
+}
+
+// -----------------------------------------------------------------------------
+// MODELS — OPERATIONS, OFFERS & REQUESTS
+// -----------------------------------------------------------------------------
+
+model Expense {
+  id                String          @id @default(uuid()) @db.Uuid
+  expenseNumber     String          @unique @db.VarChar(50)
+  category          ExpenseCategory
+  amount            Decimal         @db.Decimal(14, 2)
+  incurredDate      DateTime        @db.Timestamptz(3)
+  paymentMethod     PaymentMethod
+  referenceNumber   String?         @db.VarChar(100)
+  description       String          @db.Text
+  paidTo            String?         @db.VarChar(255)
+  receiptPath       String?         @db.VarChar(512)
+  bikeId            String?         @db.Uuid
+  purchaseId        String?         @db.Uuid
+  saleId            String?         @db.Uuid
+  recordedByAdminId String          @db.Uuid
+  isVoided          Boolean         @default(false)
+  voidedAt          DateTime?       @db.Timestamptz(3)
+  voidedByAdminId   String?         @db.Uuid
+  voidReason        String?         @db.Text
+  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime        @updatedAt @db.Timestamptz(3)
+
+  bike            Bike?     @relation(fields: [bikeId], references: [id], onDelete: SetNull)
+  purchase        Purchase? @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
+  sale            Sale?     @relation(fields: [saleId], references: [id], onDelete: SetNull)
+  recordedByAdmin AdminUser @relation("ExpenseRecordedByAdmin", fields: [recordedByAdminId], references: [id], onDelete: Restrict)
+
+  @@index([incurredDate])
+  @@index([category])
+}
+
+model Offer {
+  id               String    @id @default(uuid()) @db.Uuid
+  title            String    @db.VarChar(255)
+  description      String    @db.Text
+  offerType        OfferType
+  value            Decimal   @db.Decimal(14, 2)
+  startDate        DateTime  @db.Timestamptz(3)
+  endDate          DateTime  @db.Timestamptz(3)
+  isActive         Boolean   @default(true)
+  isFeaturedOnHome Boolean   @default(false)
+  createdAt        DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt        DateTime  @updatedAt @db.Timestamptz(3)
+
+  offerBikes OfferBike[]
+
+  @@index([isActive, startDate, endDate])
+}
+
+model OfferBike {
+  id               String   @id @default(uuid()) @db.Uuid
+  offerId          String   @db.Uuid
+  bikeId           String   @db.Uuid
+  customOfferPrice Decimal? @db.Decimal(14, 2)
+  createdAt        DateTime @default(now()) @db.Timestamptz(3)
+
+  offer Offer @relation(fields: [offerId], references: [id], onDelete: Cascade)
+  bike  Bike  @relation(fields: [bikeId], references: [id], onDelete: Cascade)
+
+  @@unique([offerId, bikeId])
+}
+
+model BikeRequest {
+  id                       String             @id @default(uuid()) @db.Uuid
+  customerId               String?            @db.Uuid
+  requesterName            String             @db.VarChar(255)
+  requesterPhoneNormalized String             @db.VarChar(50)
+  preferredBrand           String             @db.VarChar(100)
+  preferredModel           String             @db.VarChar(100)
+  minimumYear              Int?
+  maximumYear              Int?
+  minimumBudget            Decimal?           @db.Decimal(14, 2)
+  maximumBudget            Decimal?           @db.Decimal(14, 2)
+  maximumMileageKm         Int?
+  preferredColor           String?            @db.VarChar(100)
+  requiredBy               DateTime?          @db.Timestamptz(3)
+  paymentPreference        PaymentPreference?
+  notes                    String?            @db.Text
+  requestStatus            BikeRequestStatus  @default(NEW)
+  contactStatus            ContactStatus      @default(NOT_CONTACTED)
+  assignedAdminId          String?            @db.Uuid
+  createdAt                DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt                DateTime           @updatedAt @db.Timestamptz(3)
+
+  customer      Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assignedAdmin AdminUser? @relation("BikeRequestAssignedAdmin", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+
+  @@index([requesterPhoneNormalized])
+  @@index([requestStatus])
+  @@index([requiredBy])
+}
+
+model SellBikeRequest {
+  id                     String                 @id @default(uuid()) @db.Uuid
+  customerId             String?                @db.Uuid
+  sellerName             String                 @db.VarChar(255)
+  sellerPhoneNormalized  String                 @db.VarChar(50)
+  preferredContactMethod PreferredContactMethod @default(PHONE)
+  brand                  String                 @db.VarChar(100)
+  model                  String                 @db.VarChar(100)
+  variant                String?                @db.VarChar(100)
+  modelYear              Int?
+  registrationYear       Int?
+  mileageKm              Int?
+  expectedPrice          Decimal?               @db.Decimal(14, 2)
+  location               String                 @db.VarChar(255)
+  documentNotes          String?                @db.Text
+  knownProblems          String?                @db.Text
+  status                 SellBikeRequestStatus  @default(NEW)
+  assignedAdminId        String?                @db.Uuid
+  createdAt              DateTime               @default(now()) @db.Timestamptz(3)
+  updatedAt              DateTime               @updatedAt @db.Timestamptz(3)
+
+  customer      Customer?              @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  assignedAdmin AdminUser?             @relation("SellBikeRequestAssignedAdmin", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+  images        SellBikeRequestImage[]
+
+  @@index([sellerPhoneNormalized])
+  @@index([status])
+}
+
+model SellBikeRequestImage {
+  id                String   @id @default(uuid()) @db.Uuid
+  sellBikeRequestId String   @db.Uuid
+  storageKey        String   @db.VarChar(512)
+  displayOrder      Int      @default(0)
+  createdAt         DateTime @default(now()) @db.Timestamptz(3)
+
+  sellBikeRequest SellBikeRequest @relation(fields: [sellBikeRequestId], references: [id], onDelete: Cascade)
+
+  @@index([sellBikeRequestId])
+}
+
+model Inquiry {
+  id              String        @id @default(uuid()) @db.Uuid
+  customerId      String?       @db.Uuid
+  bikeId          String?       @db.Uuid
+  requesterName   String        @db.VarChar(255)
+  phoneNormalized String        @db.VarChar(50)
+  message         String        @db.Text
+  source          InquirySource @default(WEBSITE)
+  status          InquiryStatus @default(NEW)
+  assignedAdminId String?       @db.Uuid
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime      @updatedAt @db.Timestamptz(3)
+
+  customer      Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  bike          Bike?      @relation(fields: [bikeId], references: [id], onDelete: SetNull)
+  assignedAdmin AdminUser? @relation("InquiryAssignedAdmin", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+
+  @@index([status])
+  @@index([createdAt])
+}
+
+model InspectionBooking {
+  id              String           @id @default(uuid()) @db.Uuid
+  customerId      String?          @db.Uuid
+  bikeId          String?          @db.Uuid
+  requesterName   String           @db.VarChar(255)
+  phoneNormalized String           @db.VarChar(50)
+  requestedAt     DateTime         @db.Timestamptz(3)
+  confirmedAt     DateTime?        @db.Timestamptz(3)
+  status          InspectionStatus @default(REQUESTED)
+  assignedAdminId String?          @db.Uuid
+  notes           String?          @db.Text
+  createdAt       DateTime         @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @db.Timestamptz(3)
+
+  customer      Customer?  @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  bike          Bike?      @relation(fields: [bikeId], references: [id], onDelete: SetNull)
+  assignedAdmin AdminUser? @relation("InspectionAssignedAdmin", fields: [assignedAdminId], references: [id], onDelete: SetNull)
+
+  @@index([requestedAt])
+  @@index([status])
+}
+
+model ShopSetting {
+  id        String   @id @default(uuid()) @db.Uuid
+  key       String   @unique @db.VarChar(100)
+  value     String?  @db.Text
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
 }
