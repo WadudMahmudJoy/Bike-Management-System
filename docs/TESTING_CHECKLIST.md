@@ -12,16 +12,19 @@ Before claiming any phase is complete, the following commands must be run and co
 pnpm install --frozen-lockfile
 docker compose config
 docker compose up -d --wait
+docker compose ps
 pnpm exec prisma format
 pnpm exec prisma validate
 pnpm exec prisma generate
 pnpm exec prisma migrate status
-pnpm exec prisma migrate diff --exit-code --from-config-datasource --to-schema prisma/schema.prisma
 pnpm exec prisma db seed
+pnpm exec prisma db seed
+pnpm db:test-integrity
 pnpm lint
 pnpm typecheck
 pnpm build
 pnpm audit --audit-level=high
+pnpm exec prisma migrate diff --exit-code --from-config-datasource --to-schema prisma/schema.prisma
 git diff --check
 ```
 
@@ -69,86 +72,16 @@ git diff --check
 
 ---
 
-## Phase 1 Verification — Database Environment, Prisma Schema & Integrity Controls
+## Phase 1 & Phase 1.1 Verification — Database Environment, Prisma Schema & Integrity Controls
 
-- [x] **PostgreSQL 18 Development Environment (`compose.yaml`):** Local `postgres:18-alpine` container configured with volume `bike_postgres_data`, bound strictly to `127.0.0.1:5434`, with healthcheck using `pg_isready`.
-- [x] **Shadow Database Initialization (`01-create-shadow-database.sql`):** `bike_management_shadow` created on first container boot for Prisma development migrations.
+- [x] **PostgreSQL 18 Development Environment (`compose.yaml`):** Local `postgres:18-alpine` container configured with volume mounted at `/var/lib/postgresql`, bound strictly to `127.0.0.1:5434`, with healthcheck using `pg_isready`.
+- [x] **Script-Based Shadow Initializer (`01-create-shadow-database.sh`):** Committed script with `set -eu` and safe identifier validation initializing `POSTGRES_SHADOW_DB` on first boot.
 - [x] **Prisma 7 Driver Adapter Integration:** Configured `@prisma/adapter-pg` and `pg.Pool` in `src/lib/prisma.ts` and `prisma/seed.ts` with output path `src/generated/prisma`.
-- [x] **Complete Data Model (26 Entities & 25 Enum Groups):** Implemented all required models (`AdminUser`, `AdminSession`, `AuditLog`, `Customer`, `CustomerRole`, `CustomerIdentity`, `CustomerBankAccount`, `CustomerDocument`, `CustomerAccount`, `Bike`, `BikeImage`, `BikeCondition`, `BikeDocument`, `BikeStatusHistory`, `Purchase`, `PurchasePayment`, `Sale`, `SalePayment`, `Expense`, `Offer`, `OfferBike`, `BikeRequest`, `SellBikeRequest`, `SellBikeRequestImage`, `Inquiry`, `InspectionBooking`, `ShopSetting`).
-- [x] **Relation Safety Rules:** Financial records (`Purchase`, `Sale`, `PurchasePayment`, `SalePayment`, `Expense`, `CustomerIdentity`, `CustomerBankAccount`, `CustomerDocument`, `CustomerAccount`, `BikeDocument`, `BikeStatusHistory`) enforce `onDelete: Restrict`. Non-destructive cascading reserved for child entities (`CustomerRole`, `BikeImage`, `BikeCondition`, `OfferBike`, `SellBikeRequestImage`).
-- [x] **Custom SQL Check Constraints:** Added constraints for positive purchase/agreed prices, nonnegative sale prices (`finalPrice <= listedPrice`), positive payment amounts, positive engine capacity, nonnegative mileage, year ranges (1900–2100), budget ranges, offer validity, percentage limits, and void metadata consistency.
+- [x] **Complete Data Model (26 Entities & 25 Enum Groups):** Implemented all required models including `AdminUser.normalizedEmail`.
+- [x] **Relation Safety Rules:** Financial records (`Purchase`, `Sale`, `PurchasePayment`, `SalePayment`, `Expense`, `CustomerIdentity`, `CustomerBankAccount`, `CustomerDocument`, `CustomerAccount`, `BikeDocument`, `BikeStatusHistory`) enforce `onDelete: Restrict`.
+- [x] **Custom SQL Check Constraints & Migration Safety:** Applied initial migration `20260801174101_init_dealership_schema` and corrective migration `20260802000215_phase1_integrity_corrections`.
 - [x] **Partial Unique Index:** `idx_bike_image_cover` created on `BikeImage(bikeId) WHERE isCover = true` to guarantee at most one cover image per bike.
-- [x] **Database Immutability Triggers:** Verified triggers `fn_prevent_purchase_payment_tampering`, `fn_prevent_sale_payment_tampering`, `fn_prevent_audit_log_tampering`, and `fn_prevent_bike_status_history_tampering` block deletions, block field mutations, and restrict voiding to one-way transitions with metadata.
-- [x] **Idempotent Seed Script (`prisma/seed.ts`):** Populates singleton non-sensitive `ShopSetting` entries (`Sristy-Dristy Bike House` / `Sristy-Dristy Enterprise`). Running seed twice succeeds without creating duplicate rows.
-- [x] **CI Database Integration (`.github/workflows/ci.yml`):** Added PostgreSQL 18 service container, automated migration deploy (`prisma migrate deploy`), status check (`prisma migrate status`), schema drift check (`prisma migrate diff`), and seed check (`prisma db seed`).
-
----
-
-## Upcoming Phase Checklists (Phases 2–13)
-
-### Phase 2 — Admin Authentication & Admin Shell
-- [ ] Admin login interface operational with Argon2id password hashing.
-- [ ] `HttpOnly`, `Secure`, `SameSite` cookies store session tokens.
-- [ ] Database `AdminSession` stores `sessionTokenHash`.
-- [ ] Server middleware enforces authorization on `/admin/*` routes.
-- [ ] Session revocation and login rate limiting verified.
-
-### Phase 3 — Customer Management
-- [ ] Customer CRUD operations functional.
-- [ ] Phone normalization and duplicate warnings working.
-- [ ] NID status lifecycle (`PENDING` -> `SUBMITTED` -> `VERIFIED`) enforced.
-- [ ] AES-256-GCM encryption active for NID and bank accounts.
-- [ ] HMAC-SHA256 duplicate NID lookup active.
-- [ ] Private customer document storage operational with signed URLs.
-
-### Phase 4 — Bike Inventory
-- [ ] Bike CRUD functional with canonical statuses (`DRAFT`, `AVAILABLE`, `RESERVED`, `SOLD`, `HIDDEN`).
-- [ ] Photo gallery upload, ordering, and primary selection working.
-- [ ] `BikeCondition` inspection report form operational.
-- [ ] `BikeStatusHistory` audit log populated on status changes.
-
-### Phase 5 — Shop Purchase Workflow
-- [ ] Acquisition transaction workflow operational (`Purchase`).
-- [ ] Outgoing payment ledger (`PurchasePayment`) functional with `paidAt` and `receiptNumber`.
-- [ ] Dynamic seller payable calculated server-side.
-- [ ] Multi-record operations wrapped in Prisma transactions.
-
-### Phase 6 — Customer Sale Workflow
-- [ ] Sale transaction workflow operational (`Sale`).
-- [ ] Incoming payment ledger (`SalePayment`) functional with `receivedAt` and `receiptNumber`.
-- [ ] Dynamic buyer due calculated server-side.
-- [ ] Public bike status transitions to `SOLD` upon sale confirmation.
-
-### Phase 7 — Financial Ledgers & Auditing
-- [ ] Receivables and payables summary views accurate.
-- [ ] Payment receipt generation functional.
-- [ ] Void operations recorded with audit reasons.
-- [ ] Redacted `AuditLog` entries generated for all financial mutations.
-
-### Phase 8 — Public Showroom
-- [ ] Catalogue page (`/bikes`) with dynamic filtering operational.
-- [ ] Bike details page (`/bikes/[id]`) rendering images, specs, and WhatsApp CTA.
-- [ ] Schema.org structured data integrated.
-- [ ] Dynamic `/sitemap.xml` populating active available bikes.
-
-### Phase 9 — Sell-Bike Submissions
-- [ ] Public `/sell-your-bike` submission form and photo upload operational.
-- [ ] Admin review interface (`SellBikeRequest`) functional.
-
-### Phase 10 — Requested-Bike Workflow
-- [ ] Public `/request-a-bike` form with structured min/max budget working.
-- [ ] Admin matching interface (`BikeRequest`) functional.
-
-### Phase 11 — Offers, Enquiries & Expenses
-- [ ] Promotional offers (`Offer` & `OfferBike`) active.
-- [ ] General inquiry and inspection booking forms functional.
-- [ ] Operational expense ledger (`Expense`) operational.
-
-### Phase 12 — Optional Customer Portal
-- [ ] Customer account registration (`CustomerAccount`) operational.
-- [ ] Read-only customer portal working.
-
-### Phase 13 — Deployment & Audit
-- [ ] Full security audit completed.
-- [ ] Production deployment configured with verified HTTPS.
-- [ ] Database backup and restore test executed successfully.
+- [x] **Database Immutability Triggers:** Verified triggers `fn_prevent_purchase_payment_tampering`, `fn_prevent_sale_payment_tampering`, `fn_prevent_expense_tampering`, `fn_prevent_audit_log_tampering`, and `fn_prevent_bike_status_history_tampering`.
+- [x] **Idempotent Seed Script (`prisma/seed.ts`):** Populates singleton non-sensitive `ShopSetting` entries (`Sristy-Dristy Bike House` / `Sristy-Dristy Enterprise`). Running seed twice succeeds cleanly.
+- [x] **Committed Integrity Test Suite (`pnpm db:test-integrity`):** Executed 37-point runtime integrity test suite inside a rolled-back transaction.
+- [x] **CI Database Integration (`.github/workflows/ci.yml`):** Added PostgreSQL 18 service container, automated migration deploy, status check, schema drift check, double-pass seed check, and `pnpm db:test-integrity`.

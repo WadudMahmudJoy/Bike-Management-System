@@ -61,32 +61,24 @@ This document logs all authoritative architectural and product decisions for the
 
 ---
 
-## Phase 1 Database Environment & Schema Decisions (2026-08-01)
+## Phase 1 & 1.1 Database Environment & Schema Hardening Decisions (2026-08-01 & 2026-08-02)
 
 ### 2026-08-01: Local Development Container Environment (`compose.yaml`)
-- **Decision:** Containerize PostgreSQL major version 18 using `postgres:18-alpine` bound strictly to `127.0.0.1:5434` with persistent volume `bike_postgres_data`. Next.js application remains uncontainerized for fast local development.
+- **Decision:** Containerize PostgreSQL major version 18 using `postgres:18-alpine` bound strictly to `127.0.0.1:5434` with project-scoped volume mounted at `/var/lib/postgresql`. Next.js application remains uncontainerized for fast local development.
 - **Rationale:** Isolates database state, ensures identical database engine version across development environments, and protects local network interfaces.
 
-### 2026-08-01: Separate Development Shadow Database (`bike_management_shadow`)
-- **Decision:** Automatically create a shadow database `bike_management_shadow` via `/docker-entrypoint-initdb.d/01-create-shadow-database.sql` for Prisma development migration diffing.
-- **Rationale:** Prevents migration lock conflicts and enables fast, isolated shadow database migration checks during `prisma migrate dev`.
+### 2026-08-02: Script-Based Shadow Database Initializer (`01-create-shadow-database.sh`)
+- **Decision:** Create and commit `docker/postgres/init/01-create-shadow-database.sh` with `set -eu` and safe variable validation to initialize `POSTGRES_SHADOW_DB` on first boot.
+- **Rationale:** Guarantees fresh clones contain every file referenced by `compose.yaml` without relying on uncommitted setup scripts.
 
-### 2026-08-01: Prisma 7 PostgreSQL Driver Adapter Architecture
-- **Decision:** Use `@prisma/adapter-pg` and `pg.Pool` in `src/lib/prisma.ts` and `prisma/seed.ts` with custom output path `src/generated/prisma`.
-- **Rationale:** Matches Prisma 7 requirements for PostgreSQL native connections while maintaining server-only client singleton isolation.
+### 2026-08-02: Normalized Admin Email (`AdminUser.normalizedEmail`)
+- **Decision:** Add `normalizedEmail` (`String @unique @db.VarChar(255)`) to `AdminUser` for case-insensitive authentication queries while preserving `email` for display.
+- **Rationale:** Prevents security bypasses or login confusion due to case sensitivity in email input.
 
-### 2026-08-01: 26 Normalized Business Entities & Strict Relation Deletion Rules
-- **Decision:** Implement 26 complete business entities in `prisma/schema.prisma`. All financial records (`Purchase`, `Sale`, `PurchasePayment`, `SalePayment`, `Expense`) use `onDelete: Restrict` or `NoAction`. Destructive cascade deletions are permitted only on non-financial child records (`CustomerRole`, `BikeImage`, `BikeCondition`, `OfferBike`, `SellBikeRequestImage`).
-- **Rationale:** Protects financial auditability and prevents accidental loss of transaction history when parent entities are deleted.
+### 2026-08-02: Hardened Payment & Expense Ledger Immutability Triggers
+- **Decision:** Implement PostgreSQL triggers `fn_prevent_purchase_payment_tampering`, `fn_prevent_sale_payment_tampering`, and `fn_prevent_expense_tampering`. Reject insertions with pre-voided flags, block all `DELETE` operations, block core field updates using `IS DISTINCT FROM`, require complete void metadata (`voidedAt`, `voidedByAdminId`, non-empty `voidReason`) during void transitions, and block unvoiding.
+- **Rationale:** Enforces payment and expense ledger immutability at the database engine level.
 
-### 2026-08-01: Database-Level Payment & Audit Immutability Triggers
-- **Decision:** Add PostgreSQL trigger functions (`fn_prevent_purchase_payment_tampering`, `fn_prevent_sale_payment_tampering`, `fn_prevent_audit_log_tampering`, `fn_prevent_bike_status_history_tampering`) in custom migration SQL.
-- **Rationale:** Enforces payment ledger immutability and audit trail append-only behavior at the database engine level, preventing accidental or malicious SQL updates/deletions even outside the ORM.
-
-### 2026-08-01: Partial Unique Index for Cover Image (`idx_bike_image_cover`)
-- **Decision:** Create a PostgreSQL partial unique index `CREATE UNIQUE INDEX "idx_bike_image_cover" ON "BikeImage"("bikeId") WHERE "isCover" = true;` in custom migration SQL.
-- **Rationale:** Guarantees at the database level that no bike can ever have more than one cover image assigned.
-
-### 2026-08-01: Idempotent Singleton Seed Foundation (`prisma/seed.ts`)
-- **Decision:** Seed script populates non-sensitive `ShopSetting` entries (`business_name: "Sristy-Dristy Bike House"`, `legal_name: "Sristy-Dristy Enterprise"`) using `upsert`. No customer records, NID numbers, bank details, or admin passwords are seeded.
-- **Rationale:** Ensures clean environment bootstrapping without polluting development databases with synthetic personal data.
+### 2026-08-02: Mandatory Database Integrity Test Suite (`pnpm db:test-integrity`)
+- **Decision:** Create `scripts/test-database-integrity.ts` executing 37 database assertions (triggers, check constraints, partial index) inside a rolled-back transaction, integrated into CI.
+- **Rationale:** Prisma schema drift checks (`prisma migrate diff`) do not validate unsupported database triggers or custom CHECK constraints; explicit runtime integrity testing is mandatory.

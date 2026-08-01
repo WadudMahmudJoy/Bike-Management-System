@@ -6,7 +6,7 @@ This document specifies the authoritative database design for the **Bike Managem
 
 The target database is **PostgreSQL 18**, accessed via **Prisma ORM 7** (`@prisma/adapter-pg`).
 
-> **IMPLEMENTED IN PHASE 1:** All 26 Prisma business models, 25 enum groups, custom check constraints, partial unique cover-image index (`idx_bike_image_cover`), and database-level immutability triggers are fully implemented in `prisma/schema.prisma` and applied via initial migration `20260801174101_init_dealership_schema`.
+> **IMPLEMENTED IN PHASE 1 & PHASE 1.1:** All 26 Prisma business models, 25 enum groups, custom check constraints, partial unique cover-image index (`idx_bike_image_cover`), normalized admin email, and engine-level payment/expense immutability triggers are implemented in `prisma/schema.prisma` and applied via initial migration `20260801174101_init_dealership_schema` and corrective migration `20260802000215_phase1_integrity_corrections`.
 
 ---
 
@@ -16,7 +16,8 @@ The target database is **PostgreSQL 18**, accessed via **Prisma ORM 7** (`@prism
 
 - **AdminUser**
   - `id`: UUID (Primary Key)
-  - `email`: String (Unique, normalized lower-case)
+  - `email`: String (Display email)
+  - `normalizedEmail`: String (Unique, canonical lower-case)
   - `passwordHash`: String (Argon2id hash)
   - `name`: String
   - `role`: Enum (`OWNER`, `ADMIN`)
@@ -93,6 +94,7 @@ The target database is **PostgreSQL 18**, accessed via **Prisma ORM 7** (`@prism
   - `notes`: String (Nullable)
   - `createdAt`: Timestamp (UTC)
   - `updatedAt`: Timestamp (UTC)
+  - *Constraints:* `keyVersion > 0`, encryption bundle completeness, `lastFour` exact length 4, `VERIFIED` requires `verifiedAt` and `verifiedByAdminId`.
 
 - **CustomerBankAccount**
   - `id`: UUID (Primary Key)
@@ -112,6 +114,7 @@ The target database is **PostgreSQL 18**, accessed via **Prisma ORM 7** (`@prism
   - `isActive`: Boolean (Default: `true`)
   - `createdAt`: Timestamp (UTC)
   - `updatedAt`: Timestamp (UTC)
+  - *Constraints:* `keyVersion > 0`, encryption bundle completeness, `accountNumberLastFour` exact length 4.
 
 - **CustomerDocument**
   - `id`: UUID (Primary Key)
@@ -126,19 +129,7 @@ The target database is **PostgreSQL 18**, accessed via **Prisma ORM 7** (`@prism
   - `uploadedAt`: Timestamp (UTC)
   - `verifiedAt`: Timestamp (UTC, Nullable)
   - `verifiedByAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: SetNull`)
-
-- **CustomerAccount** (Future Phase 12 - Optional)
-  - `id`: UUID (Primary Key)
-  - `customerId`: UUID (Unique Foreign Key -> `Customer.id`, `onDelete: Restrict`)
-  - `phoneNormalized`: String (Unique)
-  - `email`: String (Unique, Nullable)
-  - `passwordHash`: String (Nullable)
-  - `phoneVerifiedAt`: Timestamp (UTC, Nullable)
-  - `emailVerifiedAt`: Timestamp (UTC, Nullable)
-  - `status`: Enum (`PENDING_VERIFICATION`, `ACTIVE`, `SUSPENDED`, `CLOSED`)
-  - `lastLoginAt`: Timestamp (UTC, Nullable)
-  - `createdAt`: Timestamp (UTC)
-  - `updatedAt`: Timestamp (UTC)
+  - *Constraint:* `fileSize > 0`.
 
 ---
 
@@ -170,7 +161,7 @@ The target database is **PostgreSQL 18**, accessed via **Prisma ORM 7** (`@prism
   - `archivedAt`: Timestamp (UTC, Nullable)
   - `createdAt`: Timestamp (UTC)
   - `updatedAt`: Timestamp (UTC)
-  - *No Circular FK:* `Bike` does NOT store `purchaseId`. Relationship to purchase is authoritative via `Purchase.bikeId`.
+  - *Constraint:* `ownershipCount IS NULL OR ownershipCount >= 1`. No Circular FK.
 
 - **BikeImage**
   - `id`: UUID (Primary Key)
@@ -183,7 +174,7 @@ The target database is **PostgreSQL 18**, accessed via **Prisma ORM 7** (`@prism
   - `displayOrder`: Integer (Default: `0`)
   - `isCover`: Boolean (Default: `false`)
   - `createdAt`: Timestamp (UTC)
-  - *Partial Unique Index:* `idx_bike_image_cover` enforces max 1 cover image per bike (`WHERE isCover = true`).
+  - *Partial Unique Index:* `idx_bike_image_cover` enforces max 1 cover image per bike (`WHERE isCover = true`). `width > 0`, `height > 0`, `displayOrder >= 0`.
 
 - **BikeCondition**
   - `id`: UUID (Primary Key)
@@ -193,7 +184,6 @@ The target database is **PostgreSQL 18**, accessed via **Prisma ORM 7** (`@prism
   - `notes`: String (Nullable)
   - `inspectedByAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: SetNull`)
   - `inspectedAt`: Timestamp (UTC)
-  - *Constraint:* Unique pair `(bikeId, component)`
 
 - **BikeDocument**
   - `id`: UUID (Primary Key)
@@ -204,9 +194,6 @@ The target database is **PostgreSQL 18**, accessed via **Prisma ORM 7** (`@prism
   - `expiryDate`: Timestamp (UTC, Nullable)
   - `verifiedAt`: Timestamp (UTC, Nullable)
   - `verifiedByAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: SetNull`)
-  - `notes`: String (Nullable)
-  - `createdAt`: Timestamp (UTC)
-  - `updatedAt`: Timestamp (UTC)
 
 - **BikeStatusHistory**
   - `id`: UUID (Primary Key)
@@ -220,94 +207,18 @@ The target database is **PostgreSQL 18**, accessed via **Prisma ORM 7** (`@prism
 
 ---
 
-### 4. Purchasing (Shop Buys Bike From Seller)
+### 4. Purchasing & Sales
 
-- **Purchase**
-  - `id`: UUID (Primary Key)
-  - `purchaseNumber`: String (Unique)
-  - `bikeId`: UUID (Unique Foreign Key -> `Bike.id`, `onDelete: Restrict`, Authoritative)
-  - `sellerId`: UUID (Foreign Key -> `Customer.id`, `onDelete: Restrict`)
-  - `purchaseDate`: Timestamp (UTC)
-  - `agreedPrice`: Decimal (14, 2)
-  - `sellerPaymentDueDate`: Timestamp (UTC, Nullable)
-  - `status`: Enum (`DRAFT`, `CONFIRMED`, `COMPLETED`, `CANCELLED`)
-  - `documentStatus`: Enum (`PENDING`, `SUBMITTED`, `VERIFIED`, `NEEDS_CORRECTION`, `NOT_AVAILABLE`)
-  - `ownershipTransferStatus`: Enum (`NOT_STARTED`, `PENDING`, `IN_PROGRESS`, `COMPLETED`, `BLOCKED`)
-  - `confirmedAt`: Timestamp (UTC, Nullable)
-  - `completedAt`: Timestamp (UTC, Nullable)
-  - `cancelledAt`: Timestamp (UTC, Nullable)
-  - `cancellationReason`: String (Nullable)
-  - `notes`: String (Nullable)
-  - `createdByAdminId`: UUID (Foreign Key -> `AdminUser.id`, `onDelete: Restrict`)
-  - `createdAt`: Timestamp (UTC)
-  - `updatedAt`: Timestamp (UTC)
-  - *No Stored Remaining Payable:* Seller payable is computed dynamically server-side.
-
-- **PurchasePayment** (Shop pays money OUT to seller)
-  - `id`: UUID (Primary Key)
-  - `purchaseId`: UUID (Foreign Key -> `Purchase.id`, `onDelete: Restrict`)
-  - `amount`: Decimal (14, 2)
-  - `paidAt`: Timestamp (UTC)
-  - `paymentMethod`: Enum (`CASH`, `BANK_TRANSFER`, `BKASH`, `NAGAD`, `ROCKET`, `CHEQUE`, `MIXED`, `OTHER`)
-  - `referenceNumber`: String (Nullable)
-  - `receiptNumber`: String (Unique)
-  - `notes`: String (Nullable)
-  - `createdByAdminId`: UUID (Foreign Key -> `AdminUser.id`, `onDelete: Restrict`)
-  - `isVoided`: Boolean (Default: `false`)
-  - `voidedAt`: Timestamp (UTC, Nullable)
-  - `voidedByAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: SetNull`)
-  - `voidReason`: String (Nullable)
-  - `createdAt`: Timestamp (UTC)
-  - *Trigger Protection:* `fn_prevent_purchase_payment_tampering` blocks `DELETE`, blocks `UPDATE` on core fields, and restricts void transitions.
-
----
-
-### 5. Sales (Shop Sells Bike To Buyer)
+- **PurchasePayment** & **SalePayment**
+  - Immutability enforced by PostgreSQL functions `fn_prevent_purchase_payment_tampering` and `fn_prevent_sale_payment_tampering`.
+  - Blocks `DELETE`, blocks `UPDATE` on core fields using `IS DISTINCT FROM`, requires unvoided start on `INSERT`, requires complete void metadata during one-way void transition (`isVoided = true`), and blocks unvoiding.
 
 - **Sale**
-  - `id`: UUID (Primary Key)
-  - `saleNumber`: String (Unique)
-  - `bikeId`: UUID (Unique Foreign Key -> `Bike.id`, `onDelete: Restrict`)
-  - `buyerId`: UUID (Foreign Key -> `Customer.id`, `onDelete: Restrict`)
-  - `saleDate`: Timestamp (UTC)
-  - `listedPrice`: Decimal (14, 2)
-  - `discountAmount`: Decimal (14, 2) (Default: `0.00`)
-  - `finalPrice`: Decimal (14, 2)
-  - `dueDate`: Timestamp (UTC, Nullable)
-  - `paymentTerms`: String (Nullable)
-  - `status`: Enum (`DRAFT`, `RESERVED`, `CONFIRMED`, `COMPLETED`, `CANCELLED`)
-  - `documentStatus`: Enum (`PENDING`, `SUBMITTED`, `VERIFIED`, `NEEDS_CORRECTION`, `NOT_AVAILABLE`)
-  - `ownershipTransferStatus`: Enum (`NOT_STARTED`, `PENDING`, `IN_PROGRESS`, `COMPLETED`, `BLOCKED`)
-  - `confirmedAt`: Timestamp (UTC, Nullable)
-  - `completedAt`: Timestamp (UTC, Nullable)
-  - `cancelledAt`: Timestamp (UTC, Nullable)
-  - `cancellationReason`: String (Nullable)
-  - `notes`: String (Nullable)
-  - `createdByAdminId`: UUID (Foreign Key -> `AdminUser.id`, `onDelete: Restrict`)
-  - `createdAt`: Timestamp (UTC)
-  - `updatedAt`: Timestamp (UTC)
-  - *No Stored Remaining Due:* Buyer due is computed dynamically server-side.
-
-- **SalePayment** (Shop receives money IN from buyer)
-  - `id`: UUID (Primary Key)
-  - `saleId`: UUID (Foreign Key -> `Sale.id`, `onDelete: Restrict`)
-  - `amount`: Decimal (14, 2)
-  - `receivedAt`: Timestamp (UTC)
-  - `paymentMethod`: Enum (`CASH`, `BANK_TRANSFER`, `BKASH`, `NAGAD`, `ROCKET`, `CHEQUE`, `MIXED`, `OTHER`)
-  - `referenceNumber`: String (Nullable)
-  - `receiptNumber`: String (Unique)
-  - `notes`: String (Nullable)
-  - `receivedByAdminId`: UUID (Foreign Key -> `AdminUser.id`, `onDelete: Restrict`)
-  - `isVoided`: Boolean (Default: `false`)
-  - `voidedAt`: Timestamp (UTC, Nullable)
-  - `voidedByAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: SetNull`)
-  - `voidReason`: String (Nullable)
-  - `createdAt`: Timestamp (UTC)
-  - *Trigger Protection:* `fn_prevent_sale_payment_tampering` blocks `DELETE`, blocks `UPDATE` on core fields, and restricts void transitions.
+  - *Constraints:* `listedPrice > 0`, `discountAmount >= 0`, `finalPrice >= 0`, `finalPrice = listedPrice - discountAmount`.
 
 ---
 
-### 6. Operations, Offers & Requests
+### 5. Operations & Expenses
 
 - **Expense**
   - `id`: UUID (Primary Key)
@@ -320,148 +231,14 @@ The target database is **PostgreSQL 18**, accessed via **Prisma ORM 7** (`@prism
   - `description`: String
   - `paidTo`: String (Nullable)
   - `receiptPath`: String (Nullable)
-  - `bikeId`: UUID (Nullable Foreign Key -> `Bike.id`, `onDelete: SetNull`)
-  - `purchaseId`: UUID (Nullable Foreign Key -> `Purchase.id`, `onDelete: SetNull`)
-  - `saleId`: UUID (Nullable Foreign Key -> `Sale.id`, `onDelete: SetNull`)
+  - `bikeId`: UUID (Nullable Foreign Key -> `Bike.id`, `onDelete: Restrict`)
+  - `purchaseId`: UUID (Nullable Foreign Key -> `Purchase.id`, `onDelete: Restrict`)
+  - `saleId`: UUID (Nullable Foreign Key -> `Sale.id`, `onDelete: Restrict`)
   - `recordedByAdminId`: UUID (Foreign Key -> `AdminUser.id`, `onDelete: Restrict`)
   - `isVoided`: Boolean (Default: `false`)
   - `voidedAt`: Timestamp (UTC, Nullable)
-  - `voidedByAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: SetNull`)
+  - `voidedByAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: Restrict`)
   - `voidReason`: String (Nullable)
   - `createdAt`: Timestamp (UTC)
   - `updatedAt`: Timestamp (UTC)
-
-- **Offer**
-  - `id`: UUID (Primary Key)
-  - `title`: String
-  - `description`: String
-  - `offerType`: Enum (`FIXED_DISCOUNT`, `PERCENTAGE_DISCOUNT`, `FIXED_PRICE`)
-  - `value`: Decimal (14, 2)
-  - `startDate`: Timestamp (UTC)
-  - `endDate`: Timestamp (UTC)
-  - `isActive`: Boolean (Default: `true`)
-  - `isFeaturedOnHome`: Boolean (Default: `false`)
-  - `createdAt`: Timestamp (UTC)
-  - `updatedAt`: Timestamp (UTC)
-
-- **OfferBike** (Relational join entity replacing array-based IDs)
-  - `id`: UUID (Primary Key)
-  - `offerId`: UUID (Foreign Key -> `Offer.id`, `onDelete: Cascade`)
-  - `bikeId`: UUID (Foreign Key -> `Bike.id`, `onDelete: Cascade`)
-  - `customOfferPrice`: Decimal (14, 2, Nullable)
-  - `createdAt`: Timestamp (UTC)
-  - *Constraint:* Unique pair `(offerId, bikeId)`
-
-- **BikeRequest**
-  - `id`: UUID (Primary Key)
-  - `customerId`: UUID (Nullable Foreign Key -> `Customer.id`, `onDelete: SetNull`)
-  - `requesterName`: String
-  - `requesterPhoneNormalized`: String
-  - `preferredBrand`: String
-  - `preferredModel`: String
-  - `minimumYear`: Integer (Nullable)
-  - `maximumYear`: Integer (Nullable)
-  - `minimumBudget`: Decimal (14, 2, Nullable)
-  - `maximumBudget`: Decimal (14, 2, Nullable)
-  - `maximumMileageKm`: Integer (Nullable)
-  - `preferredColor`: String (Nullable)
-  - `requiredBy`: Timestamp (UTC, Nullable)
-  - `paymentPreference`: Enum (`CASH`, `INSTALLMENT`, `DUE`, `NEGOTIABLE`, `OTHER`, Nullable)
-  - `notes`: String (Nullable)
-  - `requestStatus`: Enum (`NEW`, `CONTACTED`, `SEARCHING`, `MATCH_FOUND`, `CUSTOMER_NOTIFIED`, `COMPLETED`, `CANCELLED`)
-  - `contactStatus`: Enum (`NOT_CONTACTED`, `CONTACTED`, `FOLLOW_UP_REQUIRED`, `UNREACHABLE`, `CLOSED`)
-  - `assignedAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: SetNull`)
-  - `createdAt`: Timestamp (UTC)
-  - `updatedAt`: Timestamp (UTC)
-
-- **SellBikeRequest**
-  - `id`: UUID (Primary Key)
-  - `customerId`: UUID (Nullable Foreign Key -> `Customer.id`, `onDelete: SetNull`)
-  - `sellerName`: String
-  - `sellerPhoneNormalized`: String
-  - `preferredContactMethod`: Enum (`PHONE`, `WHATSAPP`, `EMAIL`)
-  - `brand`: String
-  - `model`: String
-  - `variant`: String (Nullable)
-  - `modelYear`: Integer (Nullable)
-  - `registrationYear`: Integer (Nullable)
-  - `mileageKm`: Integer (Nullable)
-  - `expectedPrice`: Decimal (14, 2, Nullable)
-  - `location`: String
-  - `documentNotes`: String (Nullable)
-  - `knownProblems`: String (Nullable)
-  - `status`: Enum (`NEW`, `REVIEWING`, `CONTACTED`, `INSPECTION_SCHEDULED`, `ACCEPTED`, `REJECTED`, `COMPLETED`, `CANCELLED`)
-  - `assignedAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: SetNull`)
-  - `createdAt`: Timestamp (UTC)
-  - `updatedAt`: Timestamp (UTC)
-
-- **SellBikeRequestImage** (Relational entity replacing array-based image paths)
-  - `id`: UUID (Primary Key)
-  - `sellBikeRequestId`: UUID (Foreign Key -> `SellBikeRequest.id`, `onDelete: Cascade`)
-  - `storageKey`: String
-  - `displayOrder`: Integer (Default: `0`)
-  - `createdAt`: Timestamp (UTC)
-
-- **Inquiry**
-  - `id`: UUID (Primary Key)
-  - `customerId`: UUID (Nullable Foreign Key -> `Customer.id`, `onDelete: SetNull`)
-  - `bikeId`: UUID (Nullable Foreign Key -> `Bike.id`, `onDelete: SetNull`)
-  - `requesterName`: String
-  - `phoneNormalized`: String
-  - `message`: String
-  - `source`: Enum (`WEBSITE`, `WHATSAPP`, `PHONE`, `FACEBOOK`, `WALK_IN`, `OTHER`)
-  - `status`: Enum (`NEW`, `CONTACTED`, `INSPECTION_BOOKED`, `NEGOTIATING`, `COMPLETED`, `NOT_INTERESTED`, `CLOSED`)
-  - `assignedAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: SetNull`)
-  - `createdAt`: Timestamp (UTC)
-  - `updatedAt`: Timestamp (UTC)
-
-- **InspectionBooking**
-  - `id`: UUID (Primary Key)
-  - `customerId`: UUID (Nullable Foreign Key -> `Customer.id`, `onDelete: SetNull`)
-  - `bikeId`: UUID (Nullable Foreign Key -> `Bike.id`, `onDelete: SetNull`)
-  - `requesterName`: String
-  - `phoneNormalized`: String
-  - `requestedAt`: Timestamp (UTC)
-  - `confirmedAt`: Timestamp (UTC, Nullable)
-  - `status`: Enum (`REQUESTED`, `CONFIRMED`, `COMPLETED`, `CANCELLED`, `NO_SHOW`)
-  - `assignedAdminId`: UUID (Nullable Foreign Key -> `AdminUser.id`, `onDelete: SetNull`)
-  - `notes`: String (Nullable)
-  - `createdAt`: Timestamp (UTC)
-  - `updatedAt`: Timestamp (UTC)
-
-- **ShopSetting**
-  - `id`: UUID (Primary Key)
-  - `key`: String (Unique)
-  - `value`: String (Nullable)
-  - `updatedAt`: Timestamp (UTC)
-
----
-
-## Core Database Design Rules
-
-### 1. Financial Settlement & Arithmetic
-- **Buyer Outstanding Due:** Computed dynamically server-side:
-  $$\text{Buyer Due} = \text{Sale.finalPrice} - \sum (\text{Valid SalePayment.amount WHERE isVoided = false})$$
-- **Seller Outstanding Payable:** Computed dynamically server-side:
-  $$\text{Seller Payable} = \text{Purchase.agreedPrice} - \sum (\text{Valid PurchasePayment.amount WHERE isVoided = false})$$
-- **No Stored Balances:** `remainingDue` and `remainingPayable` are NOT stored as editable database columns to prevent balance drift.
-- **No Floating-Point Money:** All financial calculations use PostgreSQL `DECIMAL(14, 2)`. Floating-point arithmetic (`number` in JS) is strictly prohibited for monetary calculations.
-
-### 2. Payment Auditing & Immutability
-- Posted `PurchasePayment` and `SalePayment` records are append-only ledgers enforced by database triggers.
-- Deletions are blocked by `fn_prevent_purchase_payment_tampering` and `fn_prevent_sale_payment_tampering`.
-- Core financial fields cannot be updated. Corrections require an explicit void operation (`isVoided = true`, `voidedAt`, `voidedByAdminId`, and `voidReason`).
-
-### 3. Public Status vs. Financial Status
-- `Bike.status` (`DRAFT`, `AVAILABLE`, `RESERVED`, `SOLD`, `HIDDEN`) dictates public catalogue visibility.
-- A bike may be publicly marked `SOLD` as soon as a `Sale` agreement is confirmed, even while buyer payments remain pending.
-
-### 4. NID Verification Lifecycle
-- NID status transitions: `PENDING` -> `SUBMITTED` -> `VERIFIED` (or `NEEDS_CORRECTION`).
-- `PENDING` is permitted during customer creation, public enquiries, bike requests, reservations, draft purchases/sales, and initial deposit payments.
-- Final transaction document completion requires minimum `SUBMITTED`.
-- Ownership transfer completion requires `VERIFIED`.
-
-### 5. Controlled Phone Handling
-- Customer phone numbers are normalized (Bangladesh format `+8801...`).
-- Phone numbers are **not** strictly unique globally, allowing family members to share a phone number.
+  - *Trigger Protection:* `fn_prevent_expense_tampering` blocks `DELETE`, core `UPDATE`, and unvoiding.

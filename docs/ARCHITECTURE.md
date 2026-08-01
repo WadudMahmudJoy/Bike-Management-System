@@ -43,7 +43,7 @@ Bike-Management-System/
 ├── docker/
 │   └── postgres/
 │       └── init/
-│           └── 01-create-shadow-database.sql # Creates bike_management_shadow on first boot
+│           └── 01-create-shadow-database.sh # Creates POSTGRES_SHADOW_DB on first boot (set -eu)
 ├── docs/                      # Comprehensive project documentation
 │   ├── ARCHITECTURE.md        # System architecture (this document)
 │   ├── CUSTOMER_ACCOUNT_DECISION.md # Customer account policy & linking design
@@ -59,10 +59,13 @@ Bike-Management-System/
 │   └── UI_DESIGN_SYSTEM.md    # Design system, color tokens, and UI layout rules
 ├── prisma/
 │   ├── migrations/            # Applied Prisma migrations & custom SQL
-│   │   └── 20260801174101_init_dealership_schema/ # Initial migration with CHECK constraints & triggers
+│   │   ├── 20260801174101_init_dealership_schema/ # Initial migration with CHECK constraints & triggers
+│   │   └── 20260802000215_phase1_integrity_corrections/ # Corrective migration (normalized email & hardened triggers)
 │   ├── schema.prisma          # Complete 26-model dealership schema specification
 │   └── seed.ts                # Idempotent ShopSetting seed foundation
 ├── public/                    # Static public assets
+├── scripts/
+│   └── test-database-integrity.ts # 37-point runtime integrity test suite (pnpm db:test-integrity)
 ├── src/
 │   ├── app/                   # Next.js App Router pages and handlers
 │   │   ├── admin/             # Administrative routes
@@ -80,6 +83,7 @@ Bike-Management-System/
 │       ├── prisma.ts          # Server-only Prisma client singleton using @prisma/adapter-pg
 │       └── site-config.ts     # Server-safe SEO & site URL configuration
 ├── .env.example               # Non-secret environment variable template
+├── .gitattributes             # Line ending rules (*.sh eol=lf, *.sql eol=lf)
 ├── .gitignore                 # Exclusion rules for secrets, builds, & private uploads
 ├── AGENTS.md                  # Instructions for AI coding agents
 ├── compose.yaml               # Docker Compose file for PostgreSQL 18 & shadow database
@@ -93,11 +97,12 @@ Bike-Management-System/
 
 ---
 
-## Database Architecture & Immutability Layer (Phase 1)
+## Database Architecture & Immutability Layer (Phase 1 & Phase 1.1)
 
-1. **26 Normalized Relational Entities:** Schema defines 26 models in `prisma/schema.prisma` covering Administration, Customers, Bike Inventory, Purchasing, Sales, Operations, Offers, Requests, Inquiries, Bookings, and Settings.
+1. **26 Normalized Relational Entities:** Schema defines 26 models in `prisma/schema.prisma` covering Administration, Customers, Bike Inventory, Purchasing, Sales, Operations, Offers, Requests, Inquiries, Bookings, and Settings. Includes `AdminUser.normalizedEmail` for case-insensitive authentication uniqueness.
 2. **Database Engine Immutability Triggers:**
-   - `PurchasePayment` & `SalePayment`: Block `DELETE` and core field `UPDATE`. Allow voiding (`isVoided = true`) only with complete metadata. Block unvoiding.
+   - `PurchasePayment`, `SalePayment` & `Expense`: Block `DELETE` and core field `UPDATE` using `IS DISTINCT FROM`. Require new records to start unvoided. Allow voiding (`isVoided = true`) only with complete metadata (`voidedAt`, `voidedByAdminId`, non-empty `voidReason`). Block unvoiding.
    - `AuditLog` & `BikeStatusHistory`: Block `UPDATE` and `DELETE` (pure append-only).
-3. **Check Constraints & Partial Indexes:** Custom PostgreSQL CHECK constraints enforce monetary positivity, year boundaries (1900–2100), and price logic (`finalPrice <= listedPrice`). Partial unique index `idx_bike_image_cover` limits cover images to max 1 per bike.
+3. **Check Constraints & Partial Indexes:** Custom PostgreSQL CHECK constraints enforce monetary positivity, year boundaries (1900–2100), price logic (`finalPrice = listedPrice - discountAmount`), and encryption bundle completeness. Partial unique index `idx_bike_image_cover` limits cover images to max 1 per bike.
 4. **Server-Only Prisma Singleton (`src/lib/prisma.ts`):** Uses `@prisma/adapter-pg` and `pg.Pool` to manage database connections while ensuring client code cannot leak into browser bundles.
+5. **Runtime Integrity Test Suite (`pnpm db:test-integrity`):** Executable 37-point integrity test script verifying all triggers, constraints, and index rules against live PostgreSQL inside a rolled-back transaction.

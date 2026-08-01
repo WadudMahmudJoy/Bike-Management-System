@@ -4,25 +4,27 @@ This document specifies the security controls, architecture, and requirements fo
 
 ---
 
-## 1. IMPLEMENTED IN PHASE 0.5, PHASE 0.5.1, PHASE 0.5.2 & PHASE 1
+## 1. IMPLEMENTED IN PHASE 0.5, PHASE 0.5.1, PHASE 0.5.2, PHASE 1 & PHASE 1.1
 
 The following baseline security and database controls are active in the codebase:
 
-### Database Integrity & Engine-Level Security (Phase 1)
-- **Database Engine Isolation:** Local PostgreSQL containerized using `postgres:18-alpine` in `compose.yaml` and bound strictly to `127.0.0.1:5434` (`localhost` loopback only). Public binding `0.0.0.0` is strictly forbidden.
+### Database Integrity & Engine-Level Security (Phase 1 & Phase 1.1)
+- **Database Engine Isolation:** Local PostgreSQL containerized using `postgres:18-alpine` in `compose.yaml` and bound strictly to `127.0.0.1:5434` (`localhost` loopback only). Mounts named volume at `/var/lib/postgresql`. Public binding `0.0.0.0` is strictly forbidden.
+- **Normalized Admin Email:** `AdminUser.normalizedEmail` (`String @unique`) enforces canonical lowercased case-insensitive email uniqueness for authentication.
 - **Database Immutability Triggers (`migration.sql`):**
-  - **`PurchasePayment` & `SalePayment` Triggers:** Block `DELETE` statements on payment records. Block `UPDATE` statements on core financial fields (`amount`, payment date, method, receipt number, creator). Restrict voiding to a one-way transition (`isVoided = true`) requiring `voidedAt`, `voidedByAdminId`, and a non-empty `voidReason`. Block unvoiding (`isVoided = false`).
+  - **`PurchasePayment` & `SalePayment` Triggers:** Block `DELETE` statements on payment records. Block `UPDATE` statements on core financial fields using `IS DISTINCT FROM`. Require new payments to start unvoided (`isVoided = false`). Restrict voiding to a one-way transition (`isVoided = true`) requiring `voidedAt`, `voidedByAdminId`, and a non-empty `voidReason`. Block unvoiding (`isVoided = false`).
+  - **`Expense` Trigger (`fn_prevent_expense_tampering`):** Enforces identical append-only immutability rules on operational expense records.
   - **`AuditLog` & `BikeStatusHistory` Triggers:** Block both `UPDATE` and `DELETE` operations, enforcing strict append-only behavior at the database engine level.
-- **Database CHECK Constraints:** Enforce nonnegative monetary values, positive purchase agreed prices, nonnegative sale prices (`finalPrice <= listedPrice`), valid year ranges (1900–2100), positive engine capacity, nonnegative mileage, valid budget ranges (`minimumBudget <= maximumBudget`), percentage discount limits (0–100), and internal void field metadata consistency.
+- **Database CHECK Constraints:** Enforce nonnegative monetary values, positive purchase agreed prices, nonnegative sale prices (`finalPrice = listedPrice - discountAmount`), valid year ranges (1900–2100), positive engine capacity, nonnegative mileage, valid budget ranges (`minimumBudget <= maximumBudget`), percentage discount limits (0–100), encryption bundle completeness, and internal void field metadata consistency.
 - **Partial Unique Index:** `idx_bike_image_cover` enforces that a bike can have at most one cover image (`isCover = true`).
-- **Financial Relation Protection:** Foreign keys on `Purchase`, `Sale`, `PurchasePayment`, `SalePayment`, `CustomerIdentity`, `CustomerBankAccount`, `CustomerDocument`, `CustomerAccount`, `BikeDocument`, and `BikeStatusHistory` use `onDelete: Restrict`. Financial records can never be cascade-deleted.
-- **Identity & Bank Data Architecture:** Schema defines encrypted ciphertext fields (`encryptedNidNumber`, `encryptedAccountNumber`), IV nonces (`encryptionIv`), GCM auth tags (`authTag`), key versioning (`keyVersion`), last-four display fields (`lastFour`), and keyed HMAC-SHA256 search indexes (`nidNumberHmac`).
+- **Financial Relation Protection:** Foreign keys on `Purchase`, `Sale`, `PurchasePayment`, `SalePayment`, `Expense`, `CustomerIdentity`, `CustomerBankAccount`, `CustomerDocument`, `CustomerAccount`, `BikeDocument`, and `BikeStatusHistory` use `onDelete: Restrict`. Financial records can never be cascade-deleted.
+- **Mandatory Runtime Integrity Test Suite (`pnpm db:test-integrity`):** Prisma schema drift checks (`prisma migrate diff`) do not validate unsupported custom PostgreSQL triggers or CHECK constraints. A 37-point runtime integrity test suite (`scripts/test-database-integrity.ts`) runs inside a rolled-back transaction during local verification and CI.
 
 ### Blocking CI Security Gate (`.github/workflows/ci.yml`)
 - **Enforced Blocking Security Audit:** `pnpm audit --audit-level=high` runs in CI as a mandatory blocking gate.
 - **No `continue-on-error`:** `continue-on-error: true`, shell exit-code suppression (`|| true`), or blanket advisory bypasses are strictly prohibited.
 - **Root Workspace Dependency Overrides (`pnpm-workspace.yaml`):** Transitive dependency vulnerabilities in pnpm 11 are resolved via `overrides` in `pnpm-workspace.yaml` (`sharp: 0.35.3`, `postcss: 8.5.25`).
-- **CI Database Integration:** CI pipeline runs a disposable PostgreSQL 18 service container with automated migration deployment, schema drift check (`prisma migrate diff`), status check, and idempotent seeding.
+- **CI Database Integration:** CI pipeline runs a disposable PostgreSQL 18 service container with automated migration deployment, schema drift check (`prisma migrate diff`), migration status check, double-pass seed idempotency check, and runtime integrity test (`pnpm db:test-integrity`).
 - **Environment Telemetry Disabled:** `NEXT_TELEMETRY_DISABLED: "1"` set in CI workflow.
 
 ### HTTP Response Headers (`next.config.ts`)

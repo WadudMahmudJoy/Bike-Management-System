@@ -28,24 +28,25 @@ Before writing code or editing files, read these documents in full:
 - **Monolith Framework:** Next.js 16 App Router full-stack monolith (`src/app/`).
 - **Language & Styling:** Strict TypeScript (`tsconfig.json`), Tailwind CSS 4 (`globals.css`).
 - **Database & ORM:** PostgreSQL 18 & Prisma 7 (`@prisma/adapter-pg` & `pg.Pool`).
-- **Container Environment:** Local PostgreSQL 18 containerized in `compose.yaml` (`bike-postgres`), bound to `127.0.0.1:5434`, with shadow database `bike_management_shadow` for Prisma migrations.
-- **Implemented Database Schema:** 26 business entities and 25 enum groups in `prisma/schema.prisma` generated to `src/generated/prisma`.
-- **Initial Migration:** Applied initial migration `20260801174101_init_dealership_schema` containing custom CHECK constraints, partial unique cover index `idx_bike_image_cover`, and engine-level immutability triggers (`PurchasePayment`, `SalePayment`, `AuditLog`, `BikeStatusHistory`).
+- **Container Environment:** Local PostgreSQL 18 containerized in `compose.yaml` (`bike-postgres`), bound to `127.0.0.1:5434`, with volume mounted at `/var/lib/postgresql` and committed initializer `docker/postgres/init/01-create-shadow-database.sh`.
+- **Implemented Database Schema:** 26 business entities and 25 enum groups in `prisma/schema.prisma` generated to `src/generated/prisma`, including `AdminUser.normalizedEmail`.
+- **Applied Migrations:** `20260801174101_init_dealership_schema` and `20260802000215_phase1_integrity_corrections` containing custom CHECK constraints, partial unique cover index `idx_bike_image_cover`, and engine-level immutability triggers (`PurchasePayment`, `SalePayment`, `Expense`, `AuditLog`, `BikeStatusHistory`).
 - **Database Driver Singleton:** Server-only `src/lib/prisma.ts` singleton importing `@prisma/adapter-pg`.
 - **Seed Foundation:** Idempotent `prisma/seed.ts` populating non-sensitive `ShopSetting` entries (`Sristy-Dristy Bike House` / `Sristy-Dristy Enterprise`).
-- **CI Pipeline:** `.github/workflows/ci.yml` includes a PostgreSQL 18 service container, `prisma validate`, `prisma generate`, `prisma migrate deploy`, `prisma migrate status`, `prisma migrate diff`, `prisma db seed`, lint, typecheck, build, and blocking audit gate.
+- **Runtime Integrity Test Suite:** 37-point runtime test suite (`scripts/test-database-integrity.ts`, executable via `pnpm db:test-integrity`).
+- **CI Pipeline:** `.github/workflows/ci.yml` includes a PostgreSQL 18 service container, `prisma validate`, `prisma generate`, `prisma migrate deploy`, `prisma migrate status`, `prisma migrate diff`, double-pass `prisma db seed`, `pnpm db:test-integrity`, lint, typecheck, build, and blocking audit gate.
 
 ---
 
 ## Locked Decisions & Core Constraints
 
-- **Do Not Rewrite Migration:** The initial migration `20260801174101_init_dealership_schema` is applied and tracked in Git. Do not rewrite, modify, or delete applied migrations. Future schema modifications must be executed via new migrations (`prisma migrate dev --name <name>`).
+- **Do Not Rewrite Applied Migrations:** The migrations in `prisma/migrations/` are applied and tracked in Git. Do not rewrite, modify, or delete applied migrations. Future schema modifications must be executed via new migrations (`prisma migrate dev --name <name>`).
 - **No Unimplemented Assumptions:** Do not assume authentication UI, admin login handlers, customer CRUD, bike CRUD, or payment processing logic exist. Inspect the codebase first.
 - **No Circular FKs:** `Purchase.bikeId` is authoritative. `Bike` does NOT store `purchaseId`.
 - **Relational Entities:** `OfferBike` and `SellBikeRequestImage` replace JSON arrays.
 - **Canonical Public Statuses:** `DRAFT`, `AVAILABLE`, `RESERVED`, `SOLD`, `HIDDEN`.
 - **Financial Calculations:** Dynamic server-side calculation only. Buyer due = `Sale.finalPrice - sum(SalePayment)`. Seller payable = `Purchase.agreedPrice - sum(PurchasePayment)`. No stored editable balances. No JS floating-point arithmetic.
-- **Payment Auditing:** Ledger records (`PurchasePayment`, `SalePayment`) are append-only and enforced by PostgreSQL triggers. Void operations (`isVoided = true`, `voidReason`) are required for corrections.
+- **Payment & Expense Auditing:** Ledger records (`PurchasePayment`, `SalePayment`, `Expense`) are append-only and enforced by PostgreSQL triggers. Void operations (`isVoided = true`, `voidReason`) are required for corrections.
 
 ---
 
@@ -57,16 +58,19 @@ Before claiming any task or phase is complete, run:
 pnpm install --frozen-lockfile
 docker compose config
 docker compose up -d --wait
+docker compose ps
 pnpm exec prisma format
 pnpm exec prisma validate
 pnpm exec prisma generate
 pnpm exec prisma migrate status
-pnpm exec prisma migrate diff --exit-code --from-config-datasource --to-schema prisma/schema.prisma
 pnpm exec prisma db seed
+pnpm exec prisma db seed
+pnpm db:test-integrity
 pnpm lint
 pnpm typecheck
 pnpm build
 pnpm audit --audit-level=high
+pnpm exec prisma migrate diff --exit-code --from-config-datasource --to-schema prisma/schema.prisma
 git diff --check
 ```
 
@@ -74,7 +78,7 @@ git diff --check
 
 ## Next Task: Phase 2 — Admin Authentication, Session Management, Security Middleware, and Admin Shell Layout
 
-When starting Phase 2 (after explicit user approval):
+When starting Phase 2 (after explicit user approval and PR #1 review):
 1. Implement Argon2id password hashing routines for admin credentials.
 2. Build admin login API endpoint and Server Actions.
 3. Configure `HttpOnly`, `Secure`, `SameSite` cookies storing session tokens.
@@ -85,4 +89,4 @@ When starting Phase 2 (after explicit user approval):
 
 ---
 
-**Phase 1 is complete. Do not begin Phase 2 until the user reviews the pull request and gives explicit permission.**
+**Phase 1.1 is complete on feature branch `phase-1/postgres-prisma-schema`. Do not merge PR #1. Do not begin Phase 2 until the user reviews the PR and gives explicit permission.**
