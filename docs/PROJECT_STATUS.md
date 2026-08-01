@@ -2,15 +2,15 @@
 
 ## Current Phase
 
-**Phase 0.5.1 — Dependency Security Gate and SEO Metadata Correction**
+**Phase 0.5.2 — GitHub Actions Runtime Correction**
 
 ## Status
 
-**Complete** — All Phase 0.5.1 security gate, workspace override, and metadata ownership corrections have been implemented and verified.
+**Complete** — All Phase 0.5.2 GitHub Actions runtime updates (`v6`) and checkout security settings (`persist-credentials: false`) have been implemented and verified in CI.
 
 ---
 
-## Completed Work (Phase 0, Phase 0.5 & Phase 0.5.1)
+## Completed Work (Phase 0 through Phase 0.5.2)
 
 ### 1. Application & Tooling Foundation
 - Next.js 16.2.12 App Router initialized with TypeScript (strict mode), Tailwind CSS 4, ESLint 9, `src/` directory.
@@ -20,29 +20,19 @@
 - pnpm build script permissions configured in `pnpm-workspace.yaml` (`allowBuilds`).
 
 ### 2. Dependency Overrides & Security Gate (`pnpm-workspace.yaml` & `.github/workflows/ci.yml`)
-- **Root Workspace Overrides (`pnpm-workspace.yaml`):** Configured root overrides for `sharp` (`0.35.3`) and `postcss` (`8.5.25`). Removed `pnpm.overrides` and direct unused `devDependencies` from `package.json`.
-- **Verified Dependency Resolution:**
-  - `pnpm why sharp` confirms single resolved version `0.35.3` (no version < 0.35.0 remains).
-  - `pnpm why postcss` confirms single resolved version `8.5.25` (no version <= 8.5.17 remains).
-- **Blocking Security Gate:** Removed `continue-on-error: true` from `.github/workflows/ci.yml`. The security audit step (`pnpm audit --audit-level=high`) acts as a mandatory blocking CI check.
-- **Environment Telemetry:** Added `NEXT_TELEMETRY_DISABLED: "1"` to CI environment.
-- **Prisma CI Step:** Added `pnpm exec prisma validate` step in CI using synthetic placeholder `DATABASE_URL`.
+- **Root Workspace Overrides (`pnpm-workspace.yaml`):** Configured root overrides for `sharp` (`0.35.3`) and `postcss` (`8.5.25`).
+- **Verified Dependency Resolution:** Single resolved version of `sharp` (`0.35.3`) and `postcss` (`8.5.25`).
+- **Blocking Security Gate:** `pnpm audit --audit-level=high` is a mandatory blocking CI check. Zero vulnerabilities found.
+- **GitHub Actions Runtime Update (Phase 0.5.2):** Actions updated to `actions/checkout@v6`, `pnpm/action-setup@v6`, `actions/setup-node@v6` with `persist-credentials: false` on checkout. Node 20 runner deprecation warning eliminated.
+- **Environment Telemetry:** `NEXT_TELEMETRY_DISABLED: "1"` set in CI environment.
+- **Prisma CI Step:** `pnpm exec prisma validate` step in CI using synthetic placeholder `DATABASE_URL`.
 
 ### 3. SEO Metadata Ownership Correction (`layout.tsx`, `page.tsx`, `sitemap.ts`)
-- **Metadata Ownership Separation:**
-  - `src/app/layout.tsx`: Defines global defaults only (`metadataBase`, title template, default title, description, application name, robots, OG siteName, OG type). Removed page-specific `alternates.canonical` and `openGraph.url`.
-  - `src/app/page.tsx`: Exports homepage-specific metadata containing `alternates: { canonical: "/" }` and `openGraph: { url: "/" }`.
-- **Sitemap Protection (`src/app/sitemap.ts`):** Returns an empty array `[]` when `SITE_INDEXING_ENABLED` is `false`, preventing localhost URLs from being published in `/sitemap.xml`.
+- **Metadata Ownership Separation:** Root layout defines global defaults only; `page.tsx` exports page-specific canonical links (`alternates: { canonical: "/" }`) and Open Graph URLs (`openGraph: { url: "/" }`).
+- **Sitemap Protection (`src/app/sitemap.ts`):** Returns `[]` when `SITE_INDEXING_ENABLED` is `false`.
 
 ### 4. Database Design Hardening (`docs/DATABASE_DESIGN.md`)
-- Authoritative specification revised:
-  - Removed circular foreign key `Bike.purchaseId` (relationship is authoritative via `Purchase.bikeId`).
-  - Replaced array fields with relational tables: `OfferBike` (unique `(offerId, bikeId)`) and `SellBikeRequestImage` (display ordering, timestamp, clean deletion).
-  - Locked 5 canonical public bike inventory statuses: `DRAFT`, `AVAILABLE`, `RESERVED`, `SOLD`, `HIDDEN`.
-  - Clarified payment field naming: `PurchasePayment` (money out to seller) uses `paidAt` and `createdByAdminId`; `SalePayment` (money in from buyer) uses `receivedAt` and `receivedByAdminId`.
-  - Structured `BikeRequest` budget into explicit `minimumBudget` and `maximumBudget` Decimal fields.
-  - Specified keyed HMAC (`nidNumberHmac`) using an external server pepper for duplicate NID detection.
-  - Specified session token hashing (`sessionTokenHash`) for `AdminSession`.
+- Authoritative database specification locked (`Purchase.bikeId` authoritative, `OfferBike` and `SellBikeRequestImage` relational entities, 5 canonical statuses `DRAFT`, `AVAILABLE`, `RESERVED`, `SOLD`, `HIDDEN`, keyed HMAC NID lookup).
 
 ---
 
@@ -58,6 +48,7 @@
 | `pnpm build` | ✅ Pass | Next.js production build clean |
 | `pnpm exec prisma validate` | ✅ Pass | Schema validation passed |
 | `pnpm audit --audit-level=high` | ✅ Pass | `No known vulnerabilities found` (0 vulnerabilities, exit code 0) |
+| CI Pipeline (`gh run list`) | ✅ Pass | Run `30710267111` succeeded in 35s with 0 deprecation warnings |
 | `git diff --check` | ✅ Pass | Clean whitespace & formatting |
 
 ---

@@ -30,9 +30,10 @@ Before writing code or editing files, read these documents in full:
 - **Database & ORM:** PostgreSQL planned via Prisma 7 (`prisma.config.ts`, `prisma/schema.prisma`). No business models defined yet.
 - **Package Manager & Workspace Overrides:** `pnpm` locked via `"packageManager": "pnpm@11.1.2"` in `package.json`. Root overrides in `pnpm-workspace.yaml` (`sharp: 0.35.3`, `postcss: 8.5.25`).
 - **Security Audit Gate:** `pnpm audit --audit-level=high` is a mandatory blocking CI check. Pass status: 0 vulnerabilities found.
+- **CI Workflow (Phase 0.5.2):** Actions locked to `actions/checkout@v6` (with `persist-credentials: false`), `pnpm/action-setup@v6`, `actions/setup-node@v6`. Node 20 deprecation warning eliminated.
 - **Security Baseline:** HTTP headers in `next.config.ts` (`nosniff`, `DENY`, `strict-origin-when-cross-origin`, `Permissions-Policy`, `X-Robots-Tag` on `/admin` and `/api/*`, production HSTS). `no-store` headers on `/api/health`.
 - **SEO Baseline:** Site config in `src/lib/site-config.ts` with `SITE_INDEXING_ENABLED` control. Global layout metadata in `layout.tsx`; page canonical metadata in `page.tsx`. Dynamic `/robots.txt` (`robots.ts`) and `/sitemap.xml` (`sitemap.ts` returns `[]` when indexing is disabled). `noindex` on `/admin/page.tsx`.
-- **CI & Tooling:** GitHub Actions workflow `.github/workflows/ci.yml` (lint, typecheck, build, prisma validate, security audit) and `.github/dependabot.yml`. `.gitignore` corrected to track `/prisma/migrations/`.
+- **CI & Tooling:** GitHub Actions workflow `.github/workflows/ci.yml` (lint, typecheck, build, prisma validate, blocking audit) and `.github/dependabot.yml`. `.gitignore` corrected to track `/prisma/migrations/`.
 
 ---
 
@@ -80,4 +81,4 @@ When starting Phase 1 (after explicit user approval):
 
 ---
 
-**Phase 0.5.1 is complete. Do not begin Phase 1 until the user reviews the report and gives explicit permission.**
+**Phase 0.5.2 is complete. Do not begin Phase 1 until the user reviews the report and gives explicit permission.**
