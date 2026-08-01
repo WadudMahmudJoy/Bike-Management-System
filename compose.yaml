@@ -3,19 +3,19 @@ name: bike-management-system
 services:
   bike-postgres:
     image: postgres:18-alpine
-    container_name: bike-postgres
     restart: unless-stopped
     shm_size: 256mb
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-bike_admin}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-CHANGE_ME_FOR_LOCAL_DEVELOPMENT}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in environment or .env}
       POSTGRES_DB: ${POSTGRES_DB:-bike_management_dev}
-      PGDATA: /var/lib/postgresql/data/pgdata
+      POSTGRES_SHADOW_DB: ${POSTGRES_SHADOW_DB:-bike_management_shadow}
+      PGDATA: /var/lib/postgresql/data
     ports:
       - "127.0.0.1:${POSTGRES_PORT:-5434}:5432"
     volumes:
-      - bike_postgres_data:/var/lib/postgresql/data
-      - ./docker/postgres/init/01-create-shadow-database.sql:/docker-entrypoint-initdb.d/01-create-shadow-database.sql:ro
+      - bike_postgres_data:/var/lib/postgresql
+      - ./docker/postgres/init/01-create-shadow-database.sh:/docker-entrypoint-initdb.d/01-create-shadow-database.sh:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-bike_admin} -d $${POSTGRES_DB:-bike_management_dev}"]
       interval: 5s
@@ -24,4 +24,3 @@ services:
 
 volumes:
   bike_postgres_data:
-    name: bike_postgres_data
