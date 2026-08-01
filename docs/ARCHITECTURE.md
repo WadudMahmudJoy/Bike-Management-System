@@ -13,8 +13,8 @@ This document describes the full-stack architecture of the **Bike Management Sys
 | **Framework** | Next.js 16 (App Router) | Full-stack TypeScript monolith |
 | **Language** | TypeScript | Strict mode enabled (`tsconfig.json`) |
 | **Styling** | Tailwind CSS 4 | Custom design system tokens (`globals.css`) |
-| **Database** | PostgreSQL | Planned (Phase 1) |
-| **ORM** | Prisma 7 | Foundation configuration (`prisma.config.ts`, `schema.prisma`) |
+| **Database** | PostgreSQL 18 | Docker containerized (`postgres:18-alpine`, port 5434) |
+| **ORM** | Prisma 7 | `@prisma/adapter-pg` driver adapter & `pg.Pool` |
 | **Validation** | Zod | Server & Client payload validation |
 | **Package Manager**| pnpm 11 | Locked (`packageManager: pnpm@11.1.2`, root overrides in `pnpm-workspace.yaml`) |
 | **Linting & Quality**| ESLint 9 & TypeScript CLI | Enforced via CI pipeline |
@@ -39,7 +39,11 @@ Bike-Management-System/
 ├── .github/
 │   ├── dependabot.yml         # Weekly dependency update checks
 │   └── workflows/
-│       └── ci.yml             # GitHub Actions CI pipeline (lint, typecheck, build, prisma validate, blocking audit)
+│       └── ci.yml             # GitHub Actions CI pipeline with PostgreSQL 18 service container
+├── docker/
+│   └── postgres/
+│       └── init/
+│           └── 01-create-shadow-database.sql # Creates bike_management_shadow on first boot
 ├── docs/                      # Comprehensive project documentation
 │   ├── ARCHITECTURE.md        # System architecture (this document)
 │   ├── CUSTOMER_ACCOUNT_DECISION.md # Customer account policy & linking design
@@ -54,7 +58,10 @@ Bike-Management-System/
 │   ├── TESTING_CHECKLIST.md   # Verification checklist across phases
 │   └── UI_DESIGN_SYSTEM.md    # Design system, color tokens, and UI layout rules
 ├── prisma/
-│   └── schema.prisma          # Prisma schema (Datasource & Client generator)
+│   ├── migrations/            # Applied Prisma migrations & custom SQL
+│   │   └── 20260801174101_init_dealership_schema/ # Initial migration with CHECK constraints & triggers
+│   ├── schema.prisma          # Complete 26-model dealership schema specification
+│   └── seed.ts                # Idempotent ShopSetting seed foundation
 ├── public/                    # Static public assets
 ├── src/
 │   ├── app/                   # Next.js App Router pages and handlers
@@ -67,62 +74,30 @@ Bike-Management-System/
 │   │   ├── page.tsx           # Public homepage with page-specific canonical metadata
 │   │   ├── robots.ts          # Metadata route handler for `/robots.txt`
 │   │   └── sitemap.ts         # Metadata route handler for `/sitemap.xml`
+│   ├── generated/
+│   │   └── prisma/            # Generated Prisma 7 Client output
 │   └── lib/
+│       ├── prisma.ts          # Server-only Prisma client singleton using @prisma/adapter-pg
 │       └── site-config.ts     # Server-safe SEO & site URL configuration
 ├── .env.example               # Non-secret environment variable template
 ├── .gitignore                 # Exclusion rules for secrets, builds, & private uploads
 ├── AGENTS.md                  # Instructions for AI coding agents
+├── compose.yaml               # Docker Compose file for PostgreSQL 18 & shadow database
 ├── next.config.ts             # Next.js configuration with security headers
 ├── package.json               # Dependencies, scripts, and packageManager lock
 ├── pnpm-workspace.yaml        # pnpm 11 build script permissions (`allowBuilds`) & root overrides
-├── prisma.config.ts           # Prisma 7 environment configuration
-├── README.md                  # Project overview and setup instructions
+├── prisma.config.ts           # Prisma 7 environment & seed configuration
+├── README.md                  # Project overview, database setup, and verification guide
 └── tsconfig.json              # Strict TypeScript compiler options
 ```
 
 ---
 
-## Security Baseline Architecture (Phase 0.5 & 0.5.1)
+## Database Architecture & Immutability Layer (Phase 1)
 
-1. **Blocking CI Security Gate (`.github/workflows/ci.yml`):**
-   - `pnpm audit --audit-level=high` runs as a mandatory blocking check. `continue-on-error` is prohibited.
-   - `NEXT_TELEMETRY_DISABLED: "1"` set.
-   - Root workspace overrides in `pnpm-workspace.yaml` resolve transitive package vulnerabilities (`sharp: 0.35.3`, `postcss: 8.5.25`).
-2. **HTTP Security Headers (`next.config.ts`):**
-   - `poweredByHeader: false`
-   - `X-Content-Type-Options: nosniff`
-   - `X-Frame-Options: DENY`
-   - `Referrer-Policy: strict-origin-when-cross-origin`
-   - `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()`
-   - `X-Robots-Tag: noindex, nofollow, noarchive` for `/admin` and `/api/*` routes.
-   - `Strict-Transport-Security: max-age=63072000` in production mode.
-3. **Health Endpoint (`/api/health`):**
-   - Returns minimal `{ status: "ok", service: "bike-management-system" }`.
-   - Sends `Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate`.
-4. **Environment & Git Hygiene:**
-   - Secrets, `.env` files, database dumps, customer NID images, and private uploads strictly excluded via `.gitignore`.
-   - `SITE_INDEXING_ENABLED` controls crawler visibility. Default is `false`.
-
----
-
-## Data & Validation Flow (Planned for Later Phases)
-
-```
-[ Public User / Admin Browser ]
-               │
-               ▼
-[ Next.js Server Components / Actions ]
-               │
-               ├─► Zod Payload Validation (`src/lib/validation/`)
-               │
-               ├─► Server Authorization Check (`AdminSession` / RBAC)
-               │
-               ├─► Database Transaction (`Prisma Client` -> PostgreSQL)
-               │
-               └─► Redacted Audit Log Entry (`AuditLog`)
-```
-
-1. **Input Validation:** Zod schemas validate every form submission and API payload server-side.
-2. **Financial Calculations:** Executed exclusively server-side using Decimal-compatible arithmetic. No floating-point operations.
-3. **Sensitive Field Encryption:** NID numbers and bank accounts encrypted with AES-256-GCM at rest; duplicate NID lookup handled via HMAC-SHA256 index.
-4. **Audit Trail:** All financial and inventory mutations generate an immutable `AuditLog` record with redacted sensitive fields.
+1. **26 Normalized Relational Entities:** Schema defines 26 models in `prisma/schema.prisma` covering Administration, Customers, Bike Inventory, Purchasing, Sales, Operations, Offers, Requests, Inquiries, Bookings, and Settings.
+2. **Database Engine Immutability Triggers:**
+   - `PurchasePayment` & `SalePayment`: Block `DELETE` and core field `UPDATE`. Allow voiding (`isVoided = true`) only with complete metadata. Block unvoiding.
+   - `AuditLog` & `BikeStatusHistory`: Block `UPDATE` and `DELETE` (pure append-only).
+3. **Check Constraints & Partial Indexes:** Custom PostgreSQL CHECK constraints enforce monetary positivity, year boundaries (1900–2100), and price logic (`finalPrice <= listedPrice`). Partial unique index `idx_bike_image_cover` limits cover images to max 1 per bike.
+4. **Server-Only Prisma Singleton (`src/lib/prisma.ts`):** Uses `@prisma/adapter-pg` and `pg.Pool` to manage database connections while ensuring client code cannot leak into browser bundles.

@@ -23,31 +23,29 @@ Before writing code or editing files, read these documents in full:
 
 ---
 
-## Current System Architecture & Foundation State
+## Current System Architecture & Database State
 
 - **Monolith Framework:** Next.js 16 App Router full-stack monolith (`src/app/`).
 - **Language & Styling:** Strict TypeScript (`tsconfig.json`), Tailwind CSS 4 (`globals.css`).
-- **Database & ORM:** PostgreSQL planned via Prisma 7 (`prisma.config.ts`, `prisma/schema.prisma`). No business models defined yet.
-- **Package Manager & Workspace Overrides:** `pnpm` locked via `"packageManager": "pnpm@11.1.2"` in `package.json`. Root overrides in `pnpm-workspace.yaml` (`sharp: 0.35.3`, `postcss: 8.5.25`).
-- **Security Audit Gate:** `pnpm audit --audit-level=high` is a mandatory blocking CI check. Pass status: 0 vulnerabilities found.
-- **CI Workflow (Phase 0.5.2):** Actions locked to `actions/checkout@v6` (with `persist-credentials: false`), `pnpm/action-setup@v6`, `actions/setup-node@v6`. Node 20 deprecation warning eliminated.
-- **Security Baseline:** HTTP headers in `next.config.ts` (`nosniff`, `DENY`, `strict-origin-when-cross-origin`, `Permissions-Policy`, `X-Robots-Tag` on `/admin` and `/api/*`, production HSTS). `no-store` headers on `/api/health`.
-- **SEO Baseline:** Site config in `src/lib/site-config.ts` with `SITE_INDEXING_ENABLED` control. Global layout metadata in `layout.tsx`; page canonical metadata in `page.tsx`. Dynamic `/robots.txt` (`robots.ts`) and `/sitemap.xml` (`sitemap.ts` returns `[]` when indexing is disabled). `noindex` on `/admin/page.tsx`.
-- **CI & Tooling:** GitHub Actions workflow `.github/workflows/ci.yml` (lint, typecheck, build, prisma validate, blocking audit) and `.github/dependabot.yml`. `.gitignore` corrected to track `/prisma/migrations/`.
+- **Database & ORM:** PostgreSQL 18 & Prisma 7 (`@prisma/adapter-pg` & `pg.Pool`).
+- **Container Environment:** Local PostgreSQL 18 containerized in `compose.yaml` (`bike-postgres`), bound to `127.0.0.1:5434`, with shadow database `bike_management_shadow` for Prisma migrations.
+- **Implemented Database Schema:** 26 business entities and 25 enum groups in `prisma/schema.prisma` generated to `src/generated/prisma`.
+- **Initial Migration:** Applied initial migration `20260801174101_init_dealership_schema` containing custom CHECK constraints, partial unique cover index `idx_bike_image_cover`, and engine-level immutability triggers (`PurchasePayment`, `SalePayment`, `AuditLog`, `BikeStatusHistory`).
+- **Database Driver Singleton:** Server-only `src/lib/prisma.ts` singleton importing `@prisma/adapter-pg`.
+- **Seed Foundation:** Idempotent `prisma/seed.ts` populating non-sensitive `ShopSetting` entries (`Sristy-Dristy Bike House` / `Sristy-Dristy Enterprise`).
+- **CI Pipeline:** `.github/workflows/ci.yml` includes a PostgreSQL 18 service container, `prisma validate`, `prisma generate`, `prisma migrate deploy`, `prisma migrate status`, `prisma migrate diff`, `prisma db seed`, lint, typecheck, build, and blocking audit gate.
 
 ---
 
 ## Locked Decisions & Core Constraints
 
-- **No Unimplemented Assumptions:** Do not assume authentication, database tables, customer CRUD, bike CRUD, payment processing, or upload handlers exist. Inspect the codebase first.
+- **Do Not Rewrite Migration:** The initial migration `20260801174101_init_dealership_schema` is applied and tracked in Git. Do not rewrite, modify, or delete applied migrations. Future schema modifications must be executed via new migrations (`prisma migrate dev --name <name>`).
+- **No Unimplemented Assumptions:** Do not assume authentication UI, admin login handlers, customer CRUD, bike CRUD, or payment processing logic exist. Inspect the codebase first.
 - **No Circular FKs:** `Purchase.bikeId` is authoritative. `Bike` does NOT store `purchaseId`.
-- **Relational Entities:** Use `OfferBike` for offer-bike joins and `SellBikeRequestImage` for sell submission photos. No JSON arrays for relations.
+- **Relational Entities:** `OfferBike` and `SellBikeRequestImage` replace JSON arrays.
 - **Canonical Public Statuses:** `DRAFT`, `AVAILABLE`, `RESERVED`, `SOLD`, `HIDDEN`.
 - **Financial Calculations:** Dynamic server-side calculation only. Buyer due = `Sale.finalPrice - sum(SalePayment)`. Seller payable = `Purchase.agreedPrice - sum(PurchasePayment)`. No stored editable balances. No JS floating-point arithmetic.
-- **Payment Auditing:** Ledger records (`PurchasePayment`, `SalePayment`) are append-only. Void operations (`isVoided = true`, `voidReason`) are required for corrections.
-- **NID & Identity Security:** Authenticated AES-256-GCM encryption for NID and bank accounts. Keyed HMAC-SHA256 (`nidNumberHmac`) using an external pepper for duplicate NID lookup. Admin sessions store `sessionTokenHash`.
-- **Customer Accounts:** Optional and separate from business records (`Customer` vs `CustomerAccount`).
-- **SEO Integrity:** Metadata ownership separated cleanly. No fake structured data, fake reviews, or fake ratings. Sitemap lists canonical public routes only. `robots.txt` is not access control.
+- **Payment Auditing:** Ledger records (`PurchasePayment`, `SalePayment`) are append-only and enforced by PostgreSQL triggers. Void operations (`isVoided = true`, `voidReason`) are required for corrections.
 
 ---
 
@@ -55,30 +53,36 @@ Before writing code or editing files, read these documents in full:
 
 Before claiming any task or phase is complete, run:
 
-```bash
+```powershell
 pnpm install --frozen-lockfile
-pnpm why sharp
-pnpm why postcss
+docker compose config
+docker compose up -d --wait
+pnpm exec prisma format
+pnpm exec prisma validate
+pnpm exec prisma generate
+pnpm exec prisma migrate status
+pnpm exec prisma migrate diff --exit-code --from-config-datasource --to-schema prisma/schema.prisma
+pnpm exec prisma db seed
 pnpm lint
 pnpm typecheck
 pnpm build
-pnpm exec prisma validate
 pnpm audit --audit-level=high
 git diff --check
 ```
 
 ---
 
-## Next Task: Phase 1 — PostgreSQL Development Environment and Prisma Schema
+## Next Task: Phase 2 — Admin Authentication, Session Management, Security Middleware, and Admin Shell Layout
 
-When starting Phase 1 (after explicit user approval):
-1. Configure local PostgreSQL connection string in `.env` (verify `.env` remains un-tracked).
-2. Create Prisma models in `prisma/schema.prisma` matching `docs/DATABASE_DESIGN.md` strictly.
-3. Run `npx prisma migrate dev --name init` to generate the initial migration and ensure `migration_lock.toml` is committed.
-4. Build `prisma/seed.ts` using synthetic data only.
-5. Verify lint, typecheck, build, and database pull/introspect.
-6. Update `docs/PROJECT_STATUS.md` and `docs/HANDOFF.md`.
+When starting Phase 2 (after explicit user approval):
+1. Implement Argon2id password hashing routines for admin credentials.
+2. Build admin login API endpoint and Server Actions.
+3. Configure `HttpOnly`, `Secure`, `SameSite` cookies storing session tokens.
+4. Store SHA-256 session token hashes (`sessionTokenHash`) in `AdminSession`.
+5. Implement Next.js server middleware for `/admin/*` route authorization.
+6. Create admin shell layout and session context.
+7. Update `docs/PROJECT_STATUS.md` and `docs/HANDOFF.md`.
 
 ---
 
-**Phase 0.5.2 is complete. Do not begin Phase 1 until the user reviews the report and gives explicit permission.**
+**Phase 1 is complete. Do not begin Phase 2 until the user reviews the pull request and gives explicit permission.**

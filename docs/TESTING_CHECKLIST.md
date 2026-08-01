@@ -10,12 +10,17 @@ Before claiming any phase is complete, the following commands must be run and co
 
 ```bash
 pnpm install --frozen-lockfile
-pnpm why sharp
-pnpm why postcss
+docker compose config
+docker compose up -d --wait
+pnpm exec prisma format
+pnpm exec prisma validate
+pnpm exec prisma generate
+pnpm exec prisma migrate status
+pnpm exec prisma migrate diff --exit-code --from-config-datasource --to-schema prisma/schema.prisma
+pnpm exec prisma db seed
 pnpm lint
 pnpm typecheck
 pnpm build
-pnpm exec prisma validate
 pnpm audit --audit-level=high
 git diff --check
 ```
@@ -48,60 +53,40 @@ git diff --check
 
 ---
 
-## Phase 0.5 & 0.5.1 Verification — Baseline, Hardening & Security Gate
+## Phase 0.5 & 0.5.1 & 0.5.2 Verification — Baseline, Hardening, Security Gate & CI Runtime
 
 - [x] **Gitignore Corrected:** `/prisma/migrations/**/migration_lock.toml` rule removed from `.gitignore`.
 - [x] **Package Manager Locked:** `"packageManager": "pnpm@11.1.2"` present in `package.json`.
-- [x] **pnpm Workspace Overrides (`pnpm-workspace.yaml`):** Overrides configured at root level for `sharp` (`0.35.3`) and `postcss` (`8.5.25`). `pnpm.overrides` and direct unused devDependencies removed from `package.json`.
-- [x] **Blocking Security Gate (`.github/workflows/ci.yml`):**
-  - `continue-on-error: true` removed from security audit step.
-  - Audit step runs `pnpm audit --audit-level=high` as a mandatory blocking CI check.
-  - Environment variable `NEXT_TELEMETRY_DISABLED: "1"` set.
-  - Node.js version set to `22`.
+- [x] **pnpm Workspace Overrides (`pnpm-workspace.yaml`):** Overrides configured at root level for `sharp` (`0.35.3`) and `postcss` (`8.5.25`).
+- [x] **Blocking Security Gate (`.github/workflows/ci.yml`):** `pnpm audit --audit-level=high` runs as a mandatory blocking CI check.
+- [x] **GitHub Actions Runtime Updated (Phase 0.5.2):** Actions updated to `actions/checkout@v6`, `pnpm/action-setup@v6`, `actions/setup-node@v6` with `persist-credentials: false`. Node 20 deprecation warning eliminated.
 - [x] **Prisma CI Step:** Added `pnpm exec prisma validate` step in CI using placeholder `DATABASE_URL`.
-- [x] **Security Headers Configured (`next.config.ts`):**
-  - `poweredByHeader: false` configured.
-  - `X-Content-Type-Options: nosniff` header active.
-  - `X-Frame-Options: DENY` header active.
-  - `Referrer-Policy: strict-origin-when-cross-origin` header active.
-  - `Permissions-Policy` disabling camera, microphone, geolocation, payment, usb, browsing-topics active.
-  - `X-Robots-Tag: noindex, nofollow, noarchive` configured for `/admin` and `/api/*`.
-  - `Strict-Transport-Security` configured for production (`NODE_ENV === "production"`).
-- [x] **Health Endpoint Hardened (`/api/health`):**
-  - Returns minimal JSON (`status: "ok", service: "bike-management-system"`).
-  - Sends `Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate`.
-  - Exposes zero environment variables, git commits, paths, or secrets.
-- [x] **SEO & Site Configuration (`src/lib/site-config.ts`):**
-  - `SITE_URL` and `SITE_INDEXING_ENABLED` placeholders added to `.env.example`.
-  - `getValidatedSiteUrl()` fails explicitly if indexing is enabled with missing or localhost URL.
-- [x] **SEO Metadata Ownership Corrected:**
-  - `src/app/layout.tsx` defines global defaults (`metadataBase`, title template, description, robots, OG siteName). Does not define page canonical or page OG URL.
-  - `src/app/page.tsx` exports homepage metadata (`alternates.canonical: "/"`, `openGraph.url: "/"`).
-- [x] **Robots & Sitemap Route Handlers:**
-  - `src/app/robots.ts` generates dynamic `/robots.txt` based on `SITE_INDEXING_ENABLED`.
-  - `src/app/sitemap.ts` returns empty array `[]` when `SITE_INDEXING_ENABLED` is `false`, and canonical public URLs when `true`.
-  - `/admin` metadata configured with `noindex, nofollow, noarchive`.
-- [x] **CI & Dependabot Configuration:**
-  - `.github/workflows/ci.yml` created for push/PR to `main` and `develop`.
-  - `.github/dependabot.yml` created for weekly npm and GitHub Actions updates.
-- [x] **Database Design Document Hardened (`docs/DATABASE_DESIGN.md`):**
-  - Circular `Bike.purchaseId` foreign key removed.
-  - Relational `OfferBike` and `SellBikeRequestImage` entities defined.
-  - Five canonical bike statuses locked (`DRAFT`, `AVAILABLE`, `RESERVED`, `SOLD`, `HIDDEN`).
-  - Payment field naming updated (`paidAt` vs `receivedAt`).
-  - Keyed HMAC lookup specified for duplicate NID detection (`nidNumberHmac`).
+- [x] **Security Headers Configured (`next.config.ts`):** `poweredByHeader: false`, `nosniff`, `DENY`, `strict-origin-when-cross-origin`, strict `Permissions-Policy`, `X-Robots-Tag` on `/admin` and `/api/*`, production HSTS.
+- [x] **Health Endpoint Hardened (`/api/health`):** Minimal JSON response with `no-store` cache headers.
+- [x] **SEO & Site Configuration (`src/lib/site-config.ts`):** Environment validation for `SITE_URL` and `SITE_INDEXING_ENABLED`.
+- [x] **SEO Metadata Ownership Corrected:** Root layout defines global defaults; page components export canonical links and page Open Graph URLs.
+- [x] **Robots & Sitemap Route Handlers:** `robots.ts` disallows `/admin/` and `/api/`; `sitemap.ts` returns empty array `[]` when indexing is disabled.
 
 ---
 
-## Upcoming Phase Checklists (Phases 1–13)
+## Phase 1 Verification — Database Environment, Prisma Schema & Integrity Controls
 
-### Phase 1 — Database Schema & Prisma
-- [ ] PostgreSQL connection established via `.env`.
-- [ ] Prisma schema models match `docs/DATABASE_DESIGN.md` strictly.
-- [ ] Migration created (`prisma migrate dev`) and `migration_lock.toml` tracked in Git.
-- [ ] Seed script executes using synthetic data only.
+- [x] **PostgreSQL 18 Development Environment (`compose.yaml`):** Local `postgres:18-alpine` container configured with volume `bike_postgres_data`, bound strictly to `127.0.0.1:5434`, with healthcheck using `pg_isready`.
+- [x] **Shadow Database Initialization (`01-create-shadow-database.sql`):** `bike_management_shadow` created on first container boot for Prisma development migrations.
+- [x] **Prisma 7 Driver Adapter Integration:** Configured `@prisma/adapter-pg` and `pg.Pool` in `src/lib/prisma.ts` and `prisma/seed.ts` with output path `src/generated/prisma`.
+- [x] **Complete Data Model (26 Entities & 25 Enum Groups):** Implemented all required models (`AdminUser`, `AdminSession`, `AuditLog`, `Customer`, `CustomerRole`, `CustomerIdentity`, `CustomerBankAccount`, `CustomerDocument`, `CustomerAccount`, `Bike`, `BikeImage`, `BikeCondition`, `BikeDocument`, `BikeStatusHistory`, `Purchase`, `PurchasePayment`, `Sale`, `SalePayment`, `Expense`, `Offer`, `OfferBike`, `BikeRequest`, `SellBikeRequest`, `SellBikeRequestImage`, `Inquiry`, `InspectionBooking`, `ShopSetting`).
+- [x] **Relation Safety Rules:** Financial records (`Purchase`, `Sale`, `PurchasePayment`, `SalePayment`, `Expense`, `CustomerIdentity`, `CustomerBankAccount`, `CustomerDocument`, `CustomerAccount`, `BikeDocument`, `BikeStatusHistory`) enforce `onDelete: Restrict`. Non-destructive cascading reserved for child entities (`CustomerRole`, `BikeImage`, `BikeCondition`, `OfferBike`, `SellBikeRequestImage`).
+- [x] **Custom SQL Check Constraints:** Added constraints for positive purchase/agreed prices, nonnegative sale prices (`finalPrice <= listedPrice`), positive payment amounts, positive engine capacity, nonnegative mileage, year ranges (1900–2100), budget ranges, offer validity, percentage limits, and void metadata consistency.
+- [x] **Partial Unique Index:** `idx_bike_image_cover` created on `BikeImage(bikeId) WHERE isCover = true` to guarantee at most one cover image per bike.
+- [x] **Database Immutability Triggers:** Verified triggers `fn_prevent_purchase_payment_tampering`, `fn_prevent_sale_payment_tampering`, `fn_prevent_audit_log_tampering`, and `fn_prevent_bike_status_history_tampering` block deletions, block field mutations, and restrict voiding to one-way transitions with metadata.
+- [x] **Idempotent Seed Script (`prisma/seed.ts`):** Populates singleton non-sensitive `ShopSetting` entries (`Sristy-Dristy Bike House` / `Sristy-Dristy Enterprise`). Running seed twice succeeds without creating duplicate rows.
+- [x] **CI Database Integration (`.github/workflows/ci.yml`):** Added PostgreSQL 18 service container, automated migration deploy (`prisma migrate deploy`), status check (`prisma migrate status`), schema drift check (`prisma migrate diff`), and seed check (`prisma db seed`).
 
-### Phase 2 — Admin Authentication
+---
+
+## Upcoming Phase Checklists (Phases 2–13)
+
+### Phase 2 — Admin Authentication & Admin Shell
 - [ ] Admin login interface operational with Argon2id password hashing.
 - [ ] `HttpOnly`, `Secure`, `SameSite` cookies store session tokens.
 - [ ] Database `AdminSession` stores `sessionTokenHash`.
@@ -132,18 +117,18 @@ git diff --check
 - [ ] Sale transaction workflow operational (`Sale`).
 - [ ] Incoming payment ledger (`SalePayment`) functional with `receivedAt` and `receiptNumber`.
 - [ ] Dynamic buyer due calculated server-side.
-- [ ] Public bike status transitions to `SOLD` upon sale confirmation while keeping payment settlement state independent.
+- [ ] Public bike status transitions to `SOLD` upon sale confirmation.
 
 ### Phase 7 — Financial Ledgers & Auditing
 - [ ] Receivables and payables summary views accurate.
 - [ ] Payment receipt generation functional.
-- [ ] Void operations recorded with audit reasons (no silent deletions).
+- [ ] Void operations recorded with audit reasons.
 - [ ] Redacted `AuditLog` entries generated for all financial mutations.
 
 ### Phase 8 — Public Showroom
-- [ ] Catalogue page (`/bikes`) with dynamic brand/price/year filtering operational.
+- [ ] Catalogue page (`/bikes`) with dynamic filtering operational.
 - [ ] Bike details page (`/bikes/[id]`) rendering images, specs, and WhatsApp CTA.
-- [ ] Schema.org structured data (`Motorcycle`, `Product`, `LocalBusiness`) integrated.
+- [ ] Schema.org structured data integrated.
 - [ ] Dynamic `/sitemap.xml` populating active available bikes.
 
 ### Phase 9 — Sell-Bike Submissions
@@ -160,11 +145,10 @@ git diff --check
 - [ ] Operational expense ledger (`Expense`) operational.
 
 ### Phase 12 — Optional Customer Portal
-- [ ] Customer account registration and phone verification (`CustomerAccount`) operational.
-- [ ] Account linking to existing `Customer` records verified.
-- [ ] Read-only customer portal for viewing purchases, sales, and dues working.
+- [ ] Customer account registration (`CustomerAccount`) operational.
+- [ ] Read-only customer portal working.
 
 ### Phase 13 — Deployment & Audit
 - [ ] Full security audit completed.
-- [ ] Production deployment configured with verified HTTPS and headers.
+- [ ] Production deployment configured with verified HTTPS.
 - [ ] Database backup and restore test executed successfully.

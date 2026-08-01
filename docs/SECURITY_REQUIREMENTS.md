@@ -4,79 +4,48 @@ This document specifies the security controls, architecture, and requirements fo
 
 ---
 
-## 1. IMPLEMENTED IN PHASE 0.5 & PHASE 0.5.1
+## 1. IMPLEMENTED IN PHASE 0.5, PHASE 0.5.1, PHASE 0.5.2 & PHASE 1
 
-The following baseline security controls are active in the codebase:
+The following baseline security and database controls are active in the codebase:
+
+### Database Integrity & Engine-Level Security (Phase 1)
+- **Database Engine Isolation:** Local PostgreSQL containerized using `postgres:18-alpine` in `compose.yaml` and bound strictly to `127.0.0.1:5434` (`localhost` loopback only). Public binding `0.0.0.0` is strictly forbidden.
+- **Database Immutability Triggers (`migration.sql`):**
+  - **`PurchasePayment` & `SalePayment` Triggers:** Block `DELETE` statements on payment records. Block `UPDATE` statements on core financial fields (`amount`, payment date, method, receipt number, creator). Restrict voiding to a one-way transition (`isVoided = true`) requiring `voidedAt`, `voidedByAdminId`, and a non-empty `voidReason`. Block unvoiding (`isVoided = false`).
+  - **`AuditLog` & `BikeStatusHistory` Triggers:** Block both `UPDATE` and `DELETE` operations, enforcing strict append-only behavior at the database engine level.
+- **Database CHECK Constraints:** Enforce nonnegative monetary values, positive purchase agreed prices, nonnegative sale prices (`finalPrice <= listedPrice`), valid year ranges (1900–2100), positive engine capacity, nonnegative mileage, valid budget ranges (`minimumBudget <= maximumBudget`), percentage discount limits (0–100), and internal void field metadata consistency.
+- **Partial Unique Index:** `idx_bike_image_cover` enforces that a bike can have at most one cover image (`isCover = true`).
+- **Financial Relation Protection:** Foreign keys on `Purchase`, `Sale`, `PurchasePayment`, `SalePayment`, `CustomerIdentity`, `CustomerBankAccount`, `CustomerDocument`, `CustomerAccount`, `BikeDocument`, and `BikeStatusHistory` use `onDelete: Restrict`. Financial records can never be cascade-deleted.
+- **Identity & Bank Data Architecture:** Schema defines encrypted ciphertext fields (`encryptedNidNumber`, `encryptedAccountNumber`), IV nonces (`encryptionIv`), GCM auth tags (`authTag`), key versioning (`keyVersion`), last-four display fields (`lastFour`), and keyed HMAC-SHA256 search indexes (`nidNumberHmac`).
 
 ### Blocking CI Security Gate (`.github/workflows/ci.yml`)
 - **Enforced Blocking Security Audit:** `pnpm audit --audit-level=high` runs in CI as a mandatory blocking gate.
 - **No `continue-on-error`:** `continue-on-error: true`, shell exit-code suppression (`|| true`), or blanket advisory bypasses are strictly prohibited.
-- **Root Workspace Dependency Overrides (`pnpm-workspace.yaml`):** Transitive dependency vulnerabilities in pnpm 11 are resolved via `overrides` in `pnpm-workspace.yaml` (`sharp: 0.35.3`, `postcss: 8.5.25`). Direct duplicate dependencies in `package.json` are prohibited.
+- **Root Workspace Dependency Overrides (`pnpm-workspace.yaml`):** Transitive dependency vulnerabilities in pnpm 11 are resolved via `overrides` in `pnpm-workspace.yaml` (`sharp: 0.35.3`, `postcss: 8.5.25`).
+- **CI Database Integration:** CI pipeline runs a disposable PostgreSQL 18 service container with automated migration deployment, schema drift check (`prisma migrate diff`), status check, and idempotent seeding.
 - **Environment Telemetry Disabled:** `NEXT_TELEMETRY_DISABLED: "1"` set in CI workflow.
 
 ### HTTP Response Headers (`next.config.ts`)
-- **`poweredByHeader: false`**: Disables the `X-Powered-By: Next.js` header to obscure technology stack details.
-- **`X-Content-Type-Options: nosniff`**: Prevents browsers from MIME-sniffing response content types.
-- **`X-Frame-Options: DENY`**: Prevents clickjacking by blocking iframe embedding across all routes.
-- **`Referrer-Policy: strict-origin-when-cross-origin`**: Protects sensitive path details in referrer headers when navigating cross-origin.
-- **`Permissions-Policy`**: Restricts unused browser features (`camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()`).
-- **`X-Robots-Tag: noindex, nofollow, noarchive`**: Configured on `/admin` and `/api/*` routes to instruct search crawlers not to index or archive management interfaces.
-- **`Strict-Transport-Security` (HSTS)**: Configured dynamically to emit `max-age=63072000` exclusively in production (`NODE_ENV === "production"`). Does not include `includeSubDomains` or `preload`.
-
-### API & Cache Protection (`src/app/api/health/route.ts`)
-- `/api/health` response includes `Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate` and `X-Robots-Tag: noindex, nofollow, noarchive`.
-- Endpoint returns minimal JSON (`status: "ok", service: "bike-management-system"`), explicitly exposing no environment variables, git commits, server paths, database status, or framework version numbers.
-
-### Environment Variable & Git Hygiene (`.gitignore` & `.env.example`)
-- `.env` files are excluded from Git via `.gitignore` (only non-secret template `.env.example` is tracked).
-- Customer NID images (`*.nid.*`, `/nid-images/`, `/customer-documents/`), database dumps (`*.sql`, `*.dump`), local backups, and private uploads are excluded from Git.
-- `packageManager` field locked to `pnpm@11.1.2` in `package.json`.
+- `poweredByHeader: false`, `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin-when-cross-origin`, strict `Permissions-Policy`, `X-Robots-Tag: noindex, nofollow, noarchive` on `/admin` and `/api/*`, and production HSTS.
 
 ---
 
-## 2. PLANNED FOR LATER PHASES
+## 2. PLANNED & DEFERRED SECURITY CONTROLS
 
-The following security controls are specified and planned for implementation in subsequent phases:
+The following security controls are specified in architecture but deferred to future implementation phases:
 
-### Authentication Architecture (Phase 2 - Admin Shell)
+### Authentication Architecture (Deferred to Phase 2)
 - **Password Hashing:** Argon2id is locked as the password hashing algorithm. Plain-text passwords will never be logged or stored.
-- **No Public Admin Registration:** Admin accounts can only be created via CLI seed scripts or by authorized Super Admins.
-- **Session Tokens:** Session tokens are delivered exclusively via `HttpOnly`, `SameSite=Lax/Strict`, `Secure` cookies.
-- **Token Hashing:** Server database (`AdminSession`) stores only SHA-256 hashes of session tokens (`sessionTokenHash`), never raw reusable session tokens.
-- **Session Lifecycle:** Mandatory server-side session rotation and revocation on logout or timeout.
-- **Login Rate Limiting:** Exponential backoff rate limiting per IP and per account on login endpoints.
+- **Session Tokens:** Delivered via `HttpOnly`, `SameSite=Lax/Strict`, `Secure` cookies. Database stores SHA-256 hashes (`sessionTokenHash`).
+- **Session Lifecycle & Rate Limiting:** Session rotation, revocation, and exponential backoff rate limiting per IP and per account.
 
-### Server Authorization (Phase 2+)
-- **Server-Side Enforcement:** Every Server Action, API endpoint, and page layout must enforce server-side authentication and role-based access control (RBAC). Hiding UI elements is for UX only and is never relied upon for security.
-- **Robots & Hidden Routes:** `robots.txt` and `noindex` headers are search crawler directives, NOT access control. All protected endpoints must reject unauthorized requests with HTTP 401/403.
+### Runtime Authenticated Encryption Services (Deferred to Phase 3)
+- **AES-256-GCM Runtime Services:** Server-side encryption and decryption routines for customer NID numbers and bank account numbers.
+- **Keyed HMAC Generator:** Server-side HMAC-SHA256 generator utilizing a secret server pepper stored outside the database.
 
-### Sensitive Field Encryption & Masking (Phase 3 - Customer Management)
-- **Authenticated Encryption at Rest:** Customer NID numbers and bank account numbers will be encrypted using AES-256-GCM. Encryption keys will remain strictly outside the repository and database (environment configuration).
-- **Encryption Key Rotation:** `keyVersion` metadata stored alongside encrypted payloads to support seamless key rotation.
-- **Duplicate NID Lookup:** Uses a keyed HMAC-SHA256 hash (`nidNumberHmac`) of the normalized NID using a secret server pepper stored outside the database. Plain SHA hashes are prohibited.
-- **UI Masking:** Admin UI renders only masked values (e.g., displaying only the last 4 digits of bank account numbers).
-- **Log Redaction:** Password hashes, raw tokens, NID numbers, bank accounts, and full identity documents are redacted from application logs and `AuditLog` JSON payloads.
+### Private Object Storage & Upload Security (Deferred to Phase 3+)
+- **Storage Isolation & Signed URLs:** Sensitive customer documents (NID images, utility bills) stored in private object storage with short-lived signed URLs.
 
-### Private Object Storage & Upload Security (Phase 3+)
-- **Storage Isolation:** Sensitive customer documents (NID images, utility bills) are stored in private object storage, never in public web roots. Public bike images use separate public storage.
-- **Upload Inspection:** Upload handlers validate extensions against strict whitelists, verify MIME types via magic-byte inspection, enforce size limits, generate UUID filenames, and block executables.
-- **Signed URLs:** Authorized access to private customer documents is granted exclusively via short-lived, time-limited signed URLs generated after server authorization.
-
-### Database Least Privilege (Phase 1)
-- Database connections use a least-privilege PostgreSQL role for normal runtime operations (CRUD), with a separate administrative user for migrations.
-
-### Nonce-Based Content Security Policy (CSP)
-- A strict, nonce-based Content Security Policy will be implemented after authentication, hosting, storage origins, and analytics providers are finalized. CSP is currently marked PLANNED to avoid unsafe inline overrides or broken Next.js hydration.
-
----
-
-## 3. REQUIRED BEFORE PRODUCTION
-
-Prior to launching to production, the following verification and deployment controls are mandatory:
-
-1. **Domain & HTTPS Verification:** Confirm HTTPS is active and valid on the production domain before enforcing production HSTS headers.
-2. **Secret Auditing:** Verify no real credentials, database strings, or API secrets exist in Git history, environment templates, or client bundles.
-3. **Environment Indexing Validation:** Confirm `SITE_INDEXING_ENABLED` is `false` in staging/preview environments and enabled only on the live production domain.
-4. **Backup & Restore Validation:** Execute an automated PostgreSQL database backup and perform a clean restore test on a separate staging instance.
-5. **Dependency Audit:** Verify `pnpm audit --audit-level=high` returns zero unresolved high/critical vulnerabilities.
-6. **Penetration & Authorization Sweep:** Perform an authorization check on every API route and Server Action to ensure unauthenticated users cannot access or mutate business data.
+### Production Role Separation & Database Hardening (Deferred to Deployment Phase)
+- **Least-Privilege Database Roles:** Local development uses a privileged `bike_admin` user for schema migration convenience. Production deployment must separate administrative migration roles from runtime least-privilege CRUD application roles.
+- **Nonce-Based Content Security Policy (CSP):** A strict nonce-based Content Security Policy will be configured upon finalization of production hosting and asset domains.

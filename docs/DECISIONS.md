@@ -9,7 +9,6 @@ This document logs all authoritative architectural and product decisions for the
 ### 2026-08-01: TypeScript Full-Stack Monolith
 - **Decision:** Single Next.js repository with TypeScript for both frontend and backend.
 - **Rationale:** Reduces deployment complexity, shares types between client and server, single codebase for a small team.
-- **Alternatives rejected:** Separate Express/NestJS backend — rejected due to unnecessary operational complexity.
 
 ### 2026-08-01: Next.js App Router
 - **Decision:** Use Next.js App Router (not Pages Router).
@@ -18,111 +17,76 @@ This document logs all authoritative architectural and product decisions for the
 ### 2026-08-01: PostgreSQL with Prisma ORM
 - **Decision:** PostgreSQL for data storage, Prisma for ORM.
 - **Rationale:** PostgreSQL provides ACID transactions, Decimal types for money, robust constraints. Prisma provides type-safe queries and migration management.
-- **Alternatives rejected:** MongoDB — rejected due to lack of standard ACID transactions and poor fit for financial ledgers.
 
 ### 2026-08-01: Optional Customer Accounts
 - **Decision:** Customer accounts are optional and separate from customer business records.
-- **Rationale:** Most customers interact via WhatsApp/phone. Mandatory accounts create unnecessary friction. Business records must exist independently.
+- **Rationale:** Business records must exist independently of online account creation.
 
 ### 2026-08-01: Customer and CustomerAccount Separation
 - **Decision:** `Customer` (business record) and `CustomerAccount` (login credentials) are separate entities with an optional one-to-one relation.
-- **Rationale:** Admin creates customer records during transactions. Customer may optionally create a login later. Keeps business data independent of authentication.
-
-### 2026-08-01: NID Pending Workflow
-- **Decision:** NID starts as `PENDING` and is required only for final transaction completion.
-- **Rationale:** Allows business operations to begin (enquiry, reservation, initial payment) before NID verification is complete.
 
 ### 2026-08-01: Append-Only Payment Ledger
 - **Decision:** Payments are individual auditable records that cannot be silently edited or deleted. Corrections use void/reversal records.
-- **Rationale:** Financial integrity requires an auditable trail. Silent deletion of payment records is a fraud risk.
-
-### 2026-08-01: Separate Purchase and Sale Payment Domains
-- **Decision:** `PurchasePayment` and `SalePayment` are separate tables, not a unified payment table.
-- **Rationale:** Purchases (money going out) and sales (money coming in) have different workflows, validation rules, and reporting needs.
-
-### 2026-08-01: Separate Public and Financial Status
-- **Decision:** A bike's public display status (`AVAILABLE`, `SOLD`) is independent of its financial settlement status.
-- **Rationale:** A bike can be marked as `SOLD` publicly while payments are still being collected from the buyer.
-
-### 2026-08-01: No Live Chat in MVP
-- **Decision:** No public live chat feature in the initial release.
-- **Rationale:** WhatsApp is the primary communication channel for this business.
-
-### 2026-08-01: Website Forms + WhatsApp as Primary Communication
-- **Decision:** Public website provides submission forms (sell bike, request bike, enquiry, inspection). WhatsApp and phone calls are primary follow-up channels.
 
 ### 2026-08-01: No Floating-Point Money
 - **Decision:** All monetary values use PostgreSQL Decimal/Numeric types, never JavaScript floating-point.
-- **Rationale:** Floating-point arithmetic causes rounding errors in financial calculations.
 
 ### 2026-08-01: Server-Side Financial Calculations
-- **Decision:** All financial totals, balances, and due amounts are calculated server-side.
-- **Rationale:** Client-side calculations can be manipulated. Server is the single source of truth.
+- **Decision:** All financial totals, balances, and due amounts are calculated server-side dynamically.
 
 ---
 
-## Phase 0.5 Baseline & Hardening Decisions (2026-08-01)
+## Phase 0.5 & 0.5.1 Hardening & Security Decisions (2026-08-01)
 
 ### 2026-08-01: Elimination of Circular Bike/Purchase Foreign Key
 - **Decision:** Remove `Bike.purchaseId`. The relation `Purchase.bikeId` is the sole authoritative foreign key.
-- **Rationale:** Eliminates circular relational dependency between `Bike` and `Purchase`. A bike's purchase history is queried via the `Purchase` entity.
 
 ### 2026-08-01: Relational Entities for Offers and Request Images
 - **Decision:** Replace array-based `Offer.applicableBikeIds` and `SellBikeRequest.imagePaths` with relational join tables `OfferBike` and `SellBikeRequestImage`.
-- **Rationale:** Guarantees foreign-key integrity, prevents duplicate offer assignments via composite unique keys `(offerId, bikeId)`, and permits individual image deletion and ordering without rewriting JSON arrays.
 
 ### 2026-08-01: Five Canonical Public Bike Inventory Statuses
 - **Decision:** Lock public bike status enum strictly to `DRAFT`, `AVAILABLE`, `RESERVED`, `SOLD`, `HIDDEN`.
-- **Rationale:** Standardizes inventory lifecycle. Statuses like `UNLISTED` or `MAINTENANCE` are excluded from the MVP.
-
-### 2026-08-01: Explicit Payment Field Naming & Directions
-- **Decision:** Rename ambiguous fields like `receivedBy` in `PurchasePayment` to explicit fields: `paidAt` and `createdByAdminId` for purchases (money out), and `receivedAt` and `receivedByAdminId` for sales (money in).
-- **Rationale:** Prevents confusion between incoming customer payments and outgoing supplier payments.
 
 ### 2026-08-01: Keyed HMAC for Duplicate NID Identification
-- **Decision:** Duplicate NID detection will use a keyed `HMAC-SHA256` hash (`nidNumberHmac`) using a secret server pepper kept outside the database. Plain SHA hashes are prohibited.
-- **Rationale:** Plain unsalted hashes are vulnerable to rainbow table attacks if database dumps leak.
+- **Decision:** Duplicate NID detection uses a keyed `HMAC-SHA256` hash (`nidNumberHmac`) using a secret server pepper kept outside the database.
 
 ### 2026-08-01: Session Token Hashing (`AdminSession.sessionTokenHash`)
-- **Decision:** The database `AdminSession` record will store a SHA-256 hash of the session token (`sessionTokenHash`), while the raw session token is sent to the client via `HttpOnly` cookie.
-- **Rationale:** If a database read-replica or backup is compromised, active session tokens cannot be hijacked.
-
-### 2026-08-01: Argon2id for Password Hashing
-- **Decision:** Lock Argon2id as the mandatory password-hashing algorithm for future admin and customer authentication.
-- **Rationale:** Argon2id provides superior protection against GPU/ASIC brute-force attacks compared to legacy algorithms.
-
-### 2026-08-01: Structured Bike Request Budget
-- **Decision:** Replace unstructured `budgetRange` string in `BikeRequest` with separate `minimumBudget` and `maximumBudget` `Decimal` columns.
-- **Rationale:** Enables precise numerical filtering and automated matching between customer requests and available inventory.
-
-### 2026-08-01: Server-Safe Site Configuration & Indexing Control
-- **Decision:** Control site URL and search engine indexing strictly through `src/lib/site-config.ts` powered by `SITE_URL` and `SITE_INDEXING_ENABLED`.
-- **Rationale:** Prevents local development or staging URLs from accidentally leaking into production canonical tags or sitemaps. Boot fails if indexing is enabled with a localhost URL.
-
-### 2026-08-01: No Pseudo CSP in Phase 0.5
-- **Decision:** Do not enforce a fake or overly permissive Content Security Policy header in Phase 0.5.
-- **Rationale:** Weak CSP policies (e.g., relying on `unsafe-eval` or wildcard origins) provide false security. A strict nonce-based CSP will be implemented after asset hosting and analytics origins are finalized.
-
----
-
-## Phase 0.5.1 Security Gate & Metadata Ownership Decisions (2026-08-01)
+- **Decision:** The database `AdminSession` record stores a SHA-256 hash of the session token (`sessionTokenHash`).
 
 ### 2026-08-01: Root Workspace Overrides for pnpm 11 (`pnpm-workspace.yaml`)
-- **Decision:** Move all transitive dependency overrides (`sharp: 0.35.3`, `postcss: 8.5.25`) to `pnpm-workspace.yaml`. Remove `pnpm.overrides` block and direct unused `devDependencies` from `package.json`.
-- **Rationale:** Under pnpm 11 workspace configuration, root-level overrides belong in `pnpm-workspace.yaml`. Adding unused direct dependencies to `package.json` does not resolve transitive package resolution for Next.js.
+- **Decision:** Move all transitive dependency overrides (`sharp: 0.35.3`, `postcss: 8.5.25`) to `pnpm-workspace.yaml`.
 
 ### 2026-08-01: Mandatory Blocking CI Security Audit Gate
 - **Decision:** `pnpm audit --audit-level=high` runs as a mandatory blocking step in `.github/workflows/ci.yml`. `continue-on-error: true` is strictly prohibited.
-- **Rationale:** CI green status must guarantee that zero unapproved high or critical security vulnerabilities exist in dependencies.
 
-### 2026-08-01: Metadata Ownership Separation (Layout vs Page)
-- **Decision:** Root layout (`src/app/layout.tsx`) specifies global defaults (`metadataBase`, title template, description, robots, OG siteName). Canonical URLs (`alternates.canonical`) and page Open Graph URLs (`openGraph.url`) are exported strictly by their respective page components (`src/app/page.tsx`).
-- **Rationale:** Prevents root layout from overriding child page canonical URLs or incorrectly assigning the homepage canonical link to subpages.
+---
 
-### 2026-08-01: Empty Sitemap Array When Indexing Disabled
-- **Decision:** `src/app/sitemap.ts` returns an empty array (`[]`) when `siteConfig.indexingEnabled` is `false`.
-- **Rationale:** Prevents localhost development URLs from being output in `/sitemap.xml` during staging or local builds while maintaining valid `/sitemap.xml` HTTP 200 responses.
+## Phase 1 Database Environment & Schema Decisions (2026-08-01)
 
-### 2026-08-01: Prisma Foundation Validation in CI Pipeline
-- **Decision:** CI pipeline includes `pnpm exec prisma validate` using a synthetic placeholder `DATABASE_URL` within the job environment.
-- **Rationale:** Catches syntax errors or missing Prisma dependencies in CI without requiring an active PostgreSQL connection or creating database migrations.
+### 2026-08-01: Local Development Container Environment (`compose.yaml`)
+- **Decision:** Containerize PostgreSQL major version 18 using `postgres:18-alpine` bound strictly to `127.0.0.1:5434` with persistent volume `bike_postgres_data`. Next.js application remains uncontainerized for fast local development.
+- **Rationale:** Isolates database state, ensures identical database engine version across development environments, and protects local network interfaces.
+
+### 2026-08-01: Separate Development Shadow Database (`bike_management_shadow`)
+- **Decision:** Automatically create a shadow database `bike_management_shadow` via `/docker-entrypoint-initdb.d/01-create-shadow-database.sql` for Prisma development migration diffing.
+- **Rationale:** Prevents migration lock conflicts and enables fast, isolated shadow database migration checks during `prisma migrate dev`.
+
+### 2026-08-01: Prisma 7 PostgreSQL Driver Adapter Architecture
+- **Decision:** Use `@prisma/adapter-pg` and `pg.Pool` in `src/lib/prisma.ts` and `prisma/seed.ts` with custom output path `src/generated/prisma`.
+- **Rationale:** Matches Prisma 7 requirements for PostgreSQL native connections while maintaining server-only client singleton isolation.
+
+### 2026-08-01: 26 Normalized Business Entities & Strict Relation Deletion Rules
+- **Decision:** Implement 26 complete business entities in `prisma/schema.prisma`. All financial records (`Purchase`, `Sale`, `PurchasePayment`, `SalePayment`, `Expense`) use `onDelete: Restrict` or `NoAction`. Destructive cascade deletions are permitted only on non-financial child records (`CustomerRole`, `BikeImage`, `BikeCondition`, `OfferBike`, `SellBikeRequestImage`).
+- **Rationale:** Protects financial auditability and prevents accidental loss of transaction history when parent entities are deleted.
+
+### 2026-08-01: Database-Level Payment & Audit Immutability Triggers
+- **Decision:** Add PostgreSQL trigger functions (`fn_prevent_purchase_payment_tampering`, `fn_prevent_sale_payment_tampering`, `fn_prevent_audit_log_tampering`, `fn_prevent_bike_status_history_tampering`) in custom migration SQL.
+- **Rationale:** Enforces payment ledger immutability and audit trail append-only behavior at the database engine level, preventing accidental or malicious SQL updates/deletions even outside the ORM.
+
+### 2026-08-01: Partial Unique Index for Cover Image (`idx_bike_image_cover`)
+- **Decision:** Create a PostgreSQL partial unique index `CREATE UNIQUE INDEX "idx_bike_image_cover" ON "BikeImage"("bikeId") WHERE "isCover" = true;` in custom migration SQL.
+- **Rationale:** Guarantees at the database level that no bike can ever have more than one cover image assigned.
+
+### 2026-08-01: Idempotent Singleton Seed Foundation (`prisma/seed.ts`)
+- **Decision:** Seed script populates non-sensitive `ShopSetting` entries (`business_name: "Sristy-Dristy Bike House"`, `legal_name: "Sristy-Dristy Enterprise"`) using `upsert`. No customer records, NID numbers, bank details, or admin passwords are seeded.
+- **Rationale:** Ensures clean environment bootstrapping without polluting development databases with synthetic personal data.
