@@ -226,15 +226,16 @@ enum ExpenseCategory {
 // -----------------------------------------------------------------------------
 
 model AdminUser {
-  id           String    @id @default(uuid()) @db.Uuid
-  email        String    @unique @db.VarChar(255)
-  passwordHash String    @db.Text
-  name         String    @db.VarChar(255)
-  role         AdminRole @default(ADMIN)
-  isActive     Boolean   @default(true)
-  lastLoginAt  DateTime? @db.Timestamptz(3)
-  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt    DateTime  @updatedAt @db.Timestamptz(3)
+  id              String    @id @default(uuid()) @db.Uuid
+  email           String    @db.VarChar(255)
+  normalizedEmail String    @unique @db.VarChar(255)
+  passwordHash    String    @db.Text
+  name            String    @db.VarChar(255)
+  role            AdminRole @default(ADMIN)
+  isActive        Boolean   @default(true)
+  lastLoginAt     DateTime? @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @db.Timestamptz(3)
 
   sessions                   AdminSession[]
   auditLogs                  AuditLog[]
@@ -251,6 +252,7 @@ model AdminUser {
   receivedSalePayments       SalePayment[]       @relation("ReceivedSalePayments")
   voidedSalePayments         SalePayment[]       @relation("VoidedSalePayments")
   recordedExpenses           Expense[]           @relation("ExpenseRecordedByAdmin")
+  voidedExpenses             Expense[]           @relation("ExpenseVoidedByAdmin")
   assignedBikeRequests       BikeRequest[]       @relation("BikeRequestAssignedAdmin")
   assignedSellBikeRequests   SellBikeRequest[]   @relation("SellBikeRequestAssignedAdmin")
   assignedInquiries          Inquiry[]           @relation("InquiryAssignedAdmin")
@@ -684,10 +686,11 @@ model Expense {
   createdAt         DateTime        @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime        @updatedAt @db.Timestamptz(3)
 
-  bike            Bike?     @relation(fields: [bikeId], references: [id], onDelete: SetNull)
-  purchase        Purchase? @relation(fields: [purchaseId], references: [id], onDelete: SetNull)
-  sale            Sale?     @relation(fields: [saleId], references: [id], onDelete: SetNull)
-  recordedByAdmin AdminUser @relation("ExpenseRecordedByAdmin", fields: [recordedByAdminId], references: [id], onDelete: Restrict)
+  bike            Bike?      @relation(fields: [bikeId], references: [id], onDelete: Restrict)
+  purchase        Purchase?  @relation(fields: [purchaseId], references: [id], onDelete: Restrict)
+  sale            Sale?      @relation(fields: [saleId], references: [id], onDelete: Restrict)
+  recordedByAdmin AdminUser  @relation("ExpenseRecordedByAdmin", fields: [recordedByAdminId], references: [id], onDelete: Restrict)
+  voidedByAdmin   AdminUser? @relation("ExpenseVoidedByAdmin", fields: [voidedByAdminId], references: [id], onDelete: Restrict)
 
   @@index([incurredDate])
   @@index([category])
