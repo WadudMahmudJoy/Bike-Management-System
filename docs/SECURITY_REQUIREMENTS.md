@@ -4,9 +4,15 @@ This document specifies the security controls, architecture, and requirements fo
 
 ---
 
-## 1. IMPLEMENTED IN PHASE 0.5
+## 1. IMPLEMENTED IN PHASE 0.5 & PHASE 0.5.1
 
 The following baseline security controls are active in the codebase:
+
+### Blocking CI Security Gate (`.github/workflows/ci.yml`)
+- **Enforced Blocking Security Audit:** `pnpm audit --audit-level=high` runs in CI as a mandatory blocking gate.
+- **No `continue-on-error`:** `continue-on-error: true`, shell exit-code suppression (`|| true`), or blanket advisory bypasses are strictly prohibited.
+- **Root Workspace Dependency Overrides (`pnpm-workspace.yaml`):** Transitive dependency vulnerabilities in pnpm 11 are resolved via `overrides` in `pnpm-workspace.yaml` (`sharp: 0.35.3`, `postcss: 8.5.25`). Direct duplicate dependencies in `package.json` are prohibited.
+- **Environment Telemetry Disabled:** `NEXT_TELEMETRY_DISABLED: "1"` set in CI workflow.
 
 ### HTTP Response Headers (`next.config.ts`)
 - **`poweredByHeader: false`**: Disables the `X-Powered-By: Next.js` header to obscure technology stack details.
@@ -54,7 +60,7 @@ The following security controls are specified and planned for implementation in 
 ### Private Object Storage & Upload Security (Phase 3+)
 - **Storage Isolation:** Sensitive customer documents (NID images, utility bills) are stored in private object storage, never in public web roots. Public bike images use separate public storage.
 - **Upload Inspection:** Upload handlers validate extensions against strict whitelists, verify MIME types via magic-byte inspection, enforce size limits, generate UUID filenames, and block executables.
-- **Signed URLs:** Access to private customer documents is granted exclusively via short-lived, time-limited signed URLs generated after server authorization.
+- **Signed URLs:** Authorized access to private customer documents is granted exclusively via short-lived, time-limited signed URLs generated after server authorization.
 
 ### Database Least Privilege (Phase 1)
 - Database connections use a least-privilege PostgreSQL role for normal runtime operations (CRUD), with a separate administrative user for migrations.

@@ -102,3 +102,27 @@ This document logs all authoritative architectural and product decisions for the
 ### 2026-08-01: No Pseudo CSP in Phase 0.5
 - **Decision:** Do not enforce a fake or overly permissive Content Security Policy header in Phase 0.5.
 - **Rationale:** Weak CSP policies (e.g., relying on `unsafe-eval` or wildcard origins) provide false security. A strict nonce-based CSP will be implemented after asset hosting and analytics origins are finalized.
+
+---
+
+## Phase 0.5.1 Security Gate & Metadata Ownership Decisions (2026-08-01)
+
+### 2026-08-01: Root Workspace Overrides for pnpm 11 (`pnpm-workspace.yaml`)
+- **Decision:** Move all transitive dependency overrides (`sharp: 0.35.3`, `postcss: 8.5.25`) to `pnpm-workspace.yaml`. Remove `pnpm.overrides` block and direct unused `devDependencies` from `package.json`.
+- **Rationale:** Under pnpm 11 workspace configuration, root-level overrides belong in `pnpm-workspace.yaml`. Adding unused direct dependencies to `package.json` does not resolve transitive package resolution for Next.js.
+
+### 2026-08-01: Mandatory Blocking CI Security Audit Gate
+- **Decision:** `pnpm audit --audit-level=high` runs as a mandatory blocking step in `.github/workflows/ci.yml`. `continue-on-error: true` is strictly prohibited.
+- **Rationale:** CI green status must guarantee that zero unapproved high or critical security vulnerabilities exist in dependencies.
+
+### 2026-08-01: Metadata Ownership Separation (Layout vs Page)
+- **Decision:** Root layout (`src/app/layout.tsx`) specifies global defaults (`metadataBase`, title template, description, robots, OG siteName). Canonical URLs (`alternates.canonical`) and page Open Graph URLs (`openGraph.url`) are exported strictly by their respective page components (`src/app/page.tsx`).
+- **Rationale:** Prevents root layout from overriding child page canonical URLs or incorrectly assigning the homepage canonical link to subpages.
+
+### 2026-08-01: Empty Sitemap Array When Indexing Disabled
+- **Decision:** `src/app/sitemap.ts` returns an empty array (`[]`) when `siteConfig.indexingEnabled` is `false`.
+- **Rationale:** Prevents localhost development URLs from being output in `/sitemap.xml` during staging or local builds while maintaining valid `/sitemap.xml` HTTP 200 responses.
+
+### 2026-08-01: Prisma Foundation Validation in CI Pipeline
+- **Decision:** CI pipeline includes `pnpm exec prisma validate` using a synthetic placeholder `DATABASE_URL` within the job environment.
+- **Rationale:** Catches syntax errors or missing Prisma dependencies in CI without requiring an active PostgreSQL connection or creating database migrations.

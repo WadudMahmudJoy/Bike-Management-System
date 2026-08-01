@@ -1,122 +1,65 @@
-# Bike Management System
+# Bike Management System (Sristy-Dristy Bike House)
 
-A full-stack motorcycle dealership management system for **Sristy-Dristy Bike House** (Sristy-Dristy Enterprise).
+A production-grade pre-owned motorcycle dealership management system and public showroom website.
 
-## Current Status
+- **Customer-Facing Name:** Sristy-Dristy Bike House
+- **Legal Business Name:** Sristy-Dristy Enterprise
+- **Repository:** `https://github.com/WadudMahmudJoy/Bike-Management-System`
 
-**Phase 0 — Foundation and Documentation** is complete.
-
-This repository contains the project foundation: Next.js application skeleton, Prisma configuration, design system, and comprehensive project documentation. No business modules (database schema, authentication, customer management, inventory, sales, payments) are implemented yet.
+---
 
 ## Technology Stack
 
-| Layer | Technology |
-|---|---|
-| Framework | Next.js (App Router) |
-| Language | TypeScript (strict mode) |
-| Styling | Tailwind CSS |
-| Database | PostgreSQL (planned) |
-| ORM | Prisma |
-| Validation | Zod |
-| Package Manager | pnpm |
-| Linting | ESLint |
+- **Framework:** Next.js 16 (App Router full-stack monolith)
+- **Language:** TypeScript (strict mode)
+- **Styling:** Tailwind CSS 4
+- **Database & ORM:** PostgreSQL & Prisma 7
+- **Validation:** Zod
+- **Package Manager:** pnpm 11 (`packageManager: pnpm@11.1.2`, root overrides in `pnpm-workspace.yaml`)
+- **Linting:** ESLint 9
 
-## Prerequisites
+---
 
-- Node.js 20+
-- pnpm 9+
-- PostgreSQL 15+ (required from Phase 1 onward)
+## Project Status
 
-## Getting Started
+- **Phase 0 (Foundation):** Complete
+- **Phase 0.5 (Baseline & Hardening):** Complete
+- **Phase 0.5.1 (Dependency Security Gate & SEO Metadata Correction):** Complete
+- **Phase 1 (PostgreSQL & Prisma Schema):** Next Approved Phase (Requires User Permission)
+
+---
+
+## Verification Commands
+
+To verify the codebase before committing:
 
 ```bash
-# Clone the repository
-git clone https://github.com/WadudMahmudJoy/Bike-Management-System.git
-cd Bike-Management-System
-
-# Install dependencies
-pnpm install
-
-# Copy environment template
-cp .env.example .env
-# Edit .env with your actual database credentials
-
-# Run development server
-pnpm dev
+pnpm install --frozen-lockfile
+pnpm why sharp
+pnpm why postcss
+pnpm lint
+pnpm typecheck
+pnpm build
+pnpm exec prisma validate
+pnpm audit --audit-level=high
+git diff --check
 ```
 
-## Available Commands
+---
 
-| Command | Description |
-|---|---|
-| `pnpm dev` | Start development server |
-| `pnpm build` | Build for production |
-| `pnpm start` | Start production server |
-| `pnpm lint` | Run ESLint |
-| `pnpm typecheck` | Run TypeScript type checking |
+## Key Architecture & Security Decisions
 
-## Environment Setup
+1. **Monolith Architecture:** Next.js App Router full-stack monolith. No separate Express/NestJS backend.
+2. **Blocking Security Gate:** `pnpm audit --audit-level=high` is enforced as a mandatory blocking check in CI. `continue-on-error` is prohibited.
+3. **Workspace Overrides:** Transitive dependencies (`sharp`, `postcss`) are overridden in `pnpm-workspace.yaml`.
+4. **Metadata Ownership Separation:** Root layout (`layout.tsx`) defines global metadata defaults. Page components (`page.tsx`) define canonical URLs and page Open Graph URLs.
+5. **No Floating-Point Money:** All financial values use PostgreSQL Decimal-compatible types. Financial totals are calculated server-side.
+6. **Append-Only Payment Ledger:** Payments cannot be silently edited or deleted. Void operations are required for corrections.
+7. **Authoritative Relations:** `Purchase.bikeId` is authoritative; `Bike` does not store duplicate foreign keys. Relational join entities (`OfferBike`, `SellBikeRequestImage`) replace JSON arrays.
+8. **Sensitive Data Protection:** AES-256-GCM encryption for raw NID/bank values. Keyed HMAC-SHA256 index (`nidNumberHmac`) using an external pepper for duplicate lookups.
 
-Copy `.env.example` to `.env` and fill in your credentials:
+---
 
-```
-DATABASE_URL="postgresql://USER:PASSWORD@HOST:PORT/DATABASE"
-```
+## License & Ownership
 
-> **Security Warning**: Never commit `.env` files, real credentials, customer data, NID images, or database dumps to version control. The `.gitignore` is configured to exclude these files.
-
-## Project Structure
-
-```
-├── AGENTS.md                  # AI coding agent instructions
-├── README.md                  # This file
-├── docs/                      # Project documentation
-│   ├── ARCHITECTURE.md        # System architecture
-│   ├── CUSTOMER_ACCOUNT_DECISION.md  # Customer account policy
-│   ├── DATABASE_DESIGN.md     # Planned database schema
-│   ├── DECISIONS.md           # Architecture and product decisions
-│   ├── HANDOFF.md             # Handoff notes for next agent/phase
-│   ├── IMPLEMENTATION_PLAN.md # Phase-by-phase implementation plan
-│   ├── PRODUCT_SPEC.md        # Full product specification
-│   ├── PROJECT_STATUS.md      # Current project status
-│   ├── SECURITY_REQUIREMENTS.md  # Security requirements
-│   ├── TESTING_CHECKLIST.md   # Testing verification checklist
-│   └── UI_DESIGN_SYSTEM.md    # Design system documentation
-├── prisma/
-│   └── schema.prisma          # Prisma schema (foundation only)
-├── src/
-│   └── app/
-│       ├── admin/page.tsx     # Admin placeholder
-│       ├── api/health/route.ts # Health check endpoint
-│       ├── globals.css        # Global styles and design tokens
-│       ├── layout.tsx         # Root layout
-│       └── page.tsx           # Homepage
-├── .env.example               # Environment variable template
-├── package.json               # Dependencies and scripts
-├── tsconfig.json              # TypeScript configuration (strict)
-└── next.config.ts             # Next.js configuration
-```
-
-## Documentation
-
-All project documentation is in the `docs/` directory. Key documents:
-
-- **[Product Specification](docs/PRODUCT_SPEC.md)** — Complete MVP feature requirements
-- **[Architecture](docs/ARCHITECTURE.md)** — System architecture and design decisions
-- **[Database Design](docs/DATABASE_DESIGN.md)** — Planned database schema and rules
-- **[Implementation Plan](docs/IMPLEMENTATION_PLAN.md)** — Phase-by-phase development plan
-- **[Security Requirements](docs/SECURITY_REQUIREMENTS.md)** — Security constraints and policies
-- **[UI Design System](docs/UI_DESIGN_SYSTEM.md)** — Design tokens and style guidelines
-- **[Decisions](docs/DECISIONS.md)** — Dated architecture and product decisions
-- **[Handoff](docs/HANDOFF.md)** — Instructions for the next development phase
-
-## Security
-
-- No real customer data, credentials, or private documents should ever be committed
-- All `.env` files are excluded from version control
-- Customer documents (NID, bank details) will use private storage
-- See `docs/SECURITY_REQUIREMENTS.md` for full security policy
-
-## License
-
-Private — Sristy-Dristy Enterprise
+© 2026 Sristy-Dristy Enterprise. All rights reserved.

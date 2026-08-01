@@ -25,14 +25,10 @@ export const metadata: Metadata = {
   },
   description: siteConfig.defaultDescription,
   applicationName: siteConfig.businessName,
-  alternates: {
-    canonical: "/",
-  },
   openGraph: {
     title: `${siteConfig.businessName} | Pre-Owned Motorcycles`,
     description: siteConfig.defaultDescription,
     siteName: siteConfig.businessName,
-    url: "/",
     type: "website",
   },
   twitter: {

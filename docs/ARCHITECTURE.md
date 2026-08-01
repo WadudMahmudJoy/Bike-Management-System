@@ -9,14 +9,14 @@ This document describes the full-stack architecture of the **Bike Management Sys
 
 | Layer | Technology | Status / Details |
 |---|---|---|
-| **Runtime** | Node.js | v20+ (ESNext target) |
+| **Runtime** | Node.js | v22+ (ESNext target) |
 | **Framework** | Next.js 16 (App Router) | Full-stack TypeScript monolith |
 | **Language** | TypeScript | Strict mode enabled (`tsconfig.json`) |
 | **Styling** | Tailwind CSS 4 | Custom design system tokens (`globals.css`) |
 | **Database** | PostgreSQL | Planned (Phase 1) |
 | **ORM** | Prisma 7 | Foundation configuration (`prisma.config.ts`, `schema.prisma`) |
 | **Validation** | Zod | Server & Client payload validation |
-| **Package Manager**| pnpm 11 | Locked (`packageManager: pnpm@11.1.2`) |
+| **Package Manager**| pnpm 11 | Locked (`packageManager: pnpm@11.1.2`, root overrides in `pnpm-workspace.yaml`) |
 | **Linting & Quality**| ESLint 9 & TypeScript CLI | Enforced via CI pipeline |
 
 ---
@@ -39,7 +39,7 @@ Bike-Management-System/
 ├── .github/
 │   ├── dependabot.yml         # Weekly dependency update checks
 │   └── workflows/
-│       └── ci.yml             # GitHub Actions CI pipeline (lint, typecheck, build, audit)
+│       └── ci.yml             # GitHub Actions CI pipeline (lint, typecheck, build, prisma validate, blocking audit)
 ├── docs/                      # Comprehensive project documentation
 │   ├── ARCHITECTURE.md        # System architecture (this document)
 │   ├── CUSTOMER_ACCOUNT_DECISION.md # Customer account policy & linking design
@@ -63,8 +63,8 @@ Bike-Management-System/
 │   │   ├── api/               # API route handlers
 │   │   │   └── health/        # Health check endpoint (`/api/health`)
 │   │   ├── globals.css        # Tailwind CSS imports and design tokens
-│   │   ├── layout.tsx         # Root layout with dynamic metadata & fonts
-│   │   ├── page.tsx           # Public homepage (Sristy-Dristy Bike House)
+│   │   ├── layout.tsx         # Root layout with global metadata defaults & fonts
+│   │   ├── page.tsx           # Public homepage with page-specific canonical metadata
 │   │   ├── robots.ts          # Metadata route handler for `/robots.txt`
 │   │   └── sitemap.ts         # Metadata route handler for `/sitemap.xml`
 │   └── lib/
@@ -74,7 +74,7 @@ Bike-Management-System/
 ├── AGENTS.md                  # Instructions for AI coding agents
 ├── next.config.ts             # Next.js configuration with security headers
 ├── package.json               # Dependencies, scripts, and packageManager lock
-├── pnpm-workspace.yaml        # pnpm 11 build script permissions (`allowBuilds`)
+├── pnpm-workspace.yaml        # pnpm 11 build script permissions (`allowBuilds`) & root overrides
 ├── prisma.config.ts           # Prisma 7 environment configuration
 ├── README.md                  # Project overview and setup instructions
 └── tsconfig.json              # Strict TypeScript compiler options
@@ -82,9 +82,13 @@ Bike-Management-System/
 
 ---
 
-## Security Baseline Architecture (Phase 0.5)
+## Security Baseline Architecture (Phase 0.5 & 0.5.1)
 
-1. **HTTP Security Headers (`next.config.ts`):**
+1. **Blocking CI Security Gate (`.github/workflows/ci.yml`):**
+   - `pnpm audit --audit-level=high` runs as a mandatory blocking check. `continue-on-error` is prohibited.
+   - `NEXT_TELEMETRY_DISABLED: "1"` set.
+   - Root workspace overrides in `pnpm-workspace.yaml` resolve transitive package vulnerabilities (`sharp: 0.35.3`, `postcss: 8.5.25`).
+2. **HTTP Security Headers (`next.config.ts`):**
    - `poweredByHeader: false`
    - `X-Content-Type-Options: nosniff`
    - `X-Frame-Options: DENY`
@@ -92,10 +96,10 @@ Bike-Management-System/
    - `Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(), browsing-topics=()`
    - `X-Robots-Tag: noindex, nofollow, noarchive` for `/admin` and `/api/*` routes.
    - `Strict-Transport-Security: max-age=63072000` in production mode.
-2. **Health Endpoint (`/api/health`):**
+3. **Health Endpoint (`/api/health`):**
    - Returns minimal `{ status: "ok", service: "bike-management-system" }`.
    - Sends `Cache-Control: no-store, no-cache, must-revalidate, proxy-revalidate`.
-3. **Environment & Git Hygiene:**
+4. **Environment & Git Hygiene:**
    - Secrets, `.env` files, database dumps, customer NID images, and private uploads strictly excluded via `.gitignore`.
    - `SITE_INDEXING_ENABLED` controls crawler visibility. Default is `false`.
 

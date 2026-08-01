@@ -2,9 +2,11 @@ import type { MetadataRoute } from "next";
 import { siteConfig, getValidatedSiteUrl } from "@/lib/site-config";
 
 export default function sitemap(): MetadataRoute.Sitemap {
-  const baseUrl = siteConfig.indexingEnabled
-    ? getValidatedSiteUrl().toString().replace(/\/$/, "")
-    : "http://localhost:3000";
+  if (!siteConfig.indexingEnabled) {
+    return [];
+  }
+
+  const baseUrl = getValidatedSiteUrl().toString().replace(/\/$/, "");
 
   return [
     {

@@ -23,15 +23,10 @@ This document outlines the Search Engine Optimization (SEO) strategy, policies, 
   - `SITE_INDEXING_ENABLED`: Boolean string (`"true"` / `"false"`). Defaults to `"false"`.
 - **Environment Safety Rule:** When `SITE_INDEXING_ENABLED` is set to `"true"`, the system validates `SITE_URL`. If `SITE_URL` is missing, invalid, or set to `localhost`/`127.0.0.1`, server boot or build fails explicitly to prevent indexing improper or local URLs.
 
-### 3. Dynamic Metadata API (`src/app/layout.tsx` & Page Components)
-- Every public page defines metadata using Next.js Metadata API:
-  - `metadataBase`: Configured from validated `siteConfig`.
-  - `title`: Page-specific title with standard template fallback (`%s | Sristy-Dristy Bike House`).
-  - `description`: Unique, descriptive meta description (150-160 characters).
-  - `alternates.canonical`: Self-referential canonical URL for standard pages.
-  - `openGraph`: Standardized Open Graph properties (title, description, siteName, url, type `website` or `article`).
-  - `twitter`: Summary card metadata.
-  - `robots`: Driven by `SITE_INDEXING_ENABLED` (`index: true/false`, `follow: true/false`).
+### 3. Dynamic Metadata API & Ownership Separation
+- **Root Layout (`src/app/layout.tsx`):** Defines global defaults only (`metadataBase`, title template, default title, description, application name, Open Graph siteName & type `website`, Twitter card type, and global robots policy). Root layout does **not** define page-specific canonical URLs (`alternates.canonical`) or page-specific Open Graph URLs (`openGraph.url`).
+- **Page Components (`src/app/page.tsx`, etc.):** Each public page component exports its own page-specific metadata defining its own canonical URL (`alternates: { canonical: "/" }`) and Open Graph URL (`openGraph: { url: "/" }`).
+- **Robots Metadata:** Driven by `SITE_INDEXING_ENABLED` (`index: true/false`, `follow: true/false`).
 
 ### 4. Automated Robots Handler (`src/app/robots.ts`)
 - Generates `/robots.txt` dynamically based on configuration:
@@ -39,8 +34,9 @@ This document outlines the Search Engine Optimization (SEO) strategy, policies, 
   - When `SITE_INDEXING_ENABLED` is `true`: Allows public routes, explicitly disallows `/admin/` and `/api/`, and includes the absolute URL to `/sitemap.xml`.
 
 ### 5. Automated Sitemap Generator (`src/app/sitemap.ts`)
-- Generates `/sitemap.xml` listing only valid, canonical public pages.
-- In Phase 0.5, includes only verified existing public routes (`/`).
+- Generates `/sitemap.xml` dynamically:
+  - When `SITE_INDEXING_ENABLED` is `false`: Returns an empty array (`[]`) so no localhost or unverified URLs are published.
+  - When `SITE_INDEXING_ENABLED` is `true`: Returns canonical public URLs for active, indexable pages.
 - In Phase 8 (Public Showroom), dynamic bike listing URLs (`/bikes/[id]`) will be populated directly from active `AVAILABLE` bikes in the database.
 
 ---

@@ -13,6 +13,9 @@ on:
 permissions:
   contents: read
 
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
@@ -36,7 +39,6 @@ jobs:
           node-version: 22
           cache: "pnpm"
 
-
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
@@ -49,7 +51,10 @@ jobs:
       - name: Run Next.js Build
         run: pnpm build
 
+      - name: Validate Prisma Foundation
+        run: pnpm exec prisma validate
+        env:
+          DATABASE_URL: "postgresql://placeholder:placeholder@localhost:5432/placeholder"
+
       - name: Run Security Audit
         run: pnpm audit --audit-level=high
-        continue-on-error: true
-

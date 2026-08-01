@@ -10,17 +10,24 @@ Before claiming any phase is complete, the following commands must be run and co
 
 ```bash
 pnpm install --frozen-lockfile
+pnpm why sharp
+pnpm why postcss
 pnpm lint
 pnpm typecheck
 pnpm build
+pnpm exec prisma validate
 pnpm audit --audit-level=high
 git diff --check
 ```
 
+- [x] `pnpm install --frozen-lockfile` passes cleanly.
+- [x] `pnpm why sharp` confirms single patched version `0.35.3` (no version < 0.35.0).
+- [x] `pnpm why postcss` confirms single patched version `8.5.25` (no version <= 8.5.17).
 - [x] `pnpm lint` passes with 0 errors.
 - [x] `pnpm typecheck` passes with 0 errors (`tsc --noEmit`).
 - [x] `pnpm build` completes successfully.
-- [x] `pnpm audit --audit-level=high` executed and report verified.
+- [x] `pnpm exec prisma validate` passes with synthetic environment `DATABASE_URL`.
+- [x] `pnpm audit --audit-level=high` passes with 0 vulnerabilities and exit code 0.
 - [x] `git diff --check` shows no whitespace or merge conflict markers.
 - [x] No TypeScript `any` types used without documented technical justification.
 - [x] No secrets, `.env` files, NID images, or customer data committed to Git.
@@ -41,10 +48,17 @@ git diff --check
 
 ---
 
-## Phase 0.5 Verification — Baseline & Hardening
+## Phase 0.5 & 0.5.1 Verification — Baseline, Hardening & Security Gate
 
 - [x] **Gitignore Corrected:** `/prisma/migrations/**/migration_lock.toml` rule removed from `.gitignore`.
 - [x] **Package Manager Locked:** `"packageManager": "pnpm@11.1.2"` present in `package.json`.
+- [x] **pnpm Workspace Overrides (`pnpm-workspace.yaml`):** Overrides configured at root level for `sharp` (`0.35.3`) and `postcss` (`8.5.25`). `pnpm.overrides` and direct unused devDependencies removed from `package.json`.
+- [x] **Blocking Security Gate (`.github/workflows/ci.yml`):**
+  - `continue-on-error: true` removed from security audit step.
+  - Audit step runs `pnpm audit --audit-level=high` as a mandatory blocking CI check.
+  - Environment variable `NEXT_TELEMETRY_DISABLED: "1"` set.
+  - Node.js version set to `22`.
+- [x] **Prisma CI Step:** Added `pnpm exec prisma validate` step in CI using placeholder `DATABASE_URL`.
 - [x] **Security Headers Configured (`next.config.ts`):**
   - `poweredByHeader: false` configured.
   - `X-Content-Type-Options: nosniff` header active.
@@ -60,9 +74,12 @@ git diff --check
 - [x] **SEO & Site Configuration (`src/lib/site-config.ts`):**
   - `SITE_URL` and `SITE_INDEXING_ENABLED` placeholders added to `.env.example`.
   - `getValidatedSiteUrl()` fails explicitly if indexing is enabled with missing or localhost URL.
+- [x] **SEO Metadata Ownership Corrected:**
+  - `src/app/layout.tsx` defines global defaults (`metadataBase`, title template, description, robots, OG siteName). Does not define page canonical or page OG URL.
+  - `src/app/page.tsx` exports homepage metadata (`alternates.canonical: "/"`, `openGraph.url: "/"`).
 - [x] **Robots & Sitemap Route Handlers:**
   - `src/app/robots.ts` generates dynamic `/robots.txt` based on `SITE_INDEXING_ENABLED`.
-  - `src/app/sitemap.ts` generates dynamic `/sitemap.xml` listing verified existing public routes (`/`).
+  - `src/app/sitemap.ts` returns empty array `[]` when `SITE_INDEXING_ENABLED` is `false`, and canonical public URLs when `true`.
   - `/admin` metadata configured with `noindex, nofollow, noarchive`.
 - [x] **CI & Dependabot Configuration:**
   - `.github/workflows/ci.yml` created for push/PR to `main` and `develop`.

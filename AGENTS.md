@@ -47,7 +47,10 @@ Maintain clear separation between:
 - File storage (upload handling, private storage)
 - Financial calculations (server-side only)
 
-### 4. Security Baseline Rules
+### 4. Security Baseline & CI Gate Rules
+- The security audit (`pnpm audit --audit-level=high`) is a **blocking CI gate**. `continue-on-error` or exit-code suppression is strictly prohibited.
+- Root dependency overrides for pnpm 11 must be placed in `pnpm-workspace.yaml`, not `package.json`.
+- Direct duplicate dependencies must not be added to `package.json` merely to influence transitive package resolution.
 - Enforce authorization on the server for every protected action. Hidden UI controls are for UX only and are never security controls.
 - `robots.txt` and `noindex` headers are crawler directives, NOT security controls. Real server authorization is mandatory.
 - Never claim planned security controls are implemented when they are not.
@@ -66,8 +69,9 @@ Maintain clear separation between:
 
 ### 6. SEO & Metadata Rules
 - Read `docs/SEO_REQUIREMENTS.md` before working on any public-facing pages.
-- Public pages require appropriate dynamic metadata (title, description, canonical URL, Open Graph).
+- Root layout (`layout.tsx`) defines global metadata defaults. Canonical URLs (`alternates.canonical`) and Open Graph URLs (`openGraph.url`) belong to their respective page components (e.g., `page.tsx`), not the global layout.
 - Private routes (`/admin/*`, `/api/*`) require `noindex, nofollow, noarchive` metadata and HTTP headers.
+- When indexing is disabled (`SITE_INDEXING_ENABLED="false"`), `sitemap.ts` must return an empty array (`[]`) rather than publishing localhost URLs.
 - Do not generate fake structured data (JSON-LD), fake reviews, fake aggregate ratings, or artificial inventory counts.
 - Sitemap entries must contain only canonical, publicly accessible URLs returning HTTP 200. Nonexistent or placeholder routes must never be included in the sitemap.
 
@@ -86,10 +90,14 @@ Maintain clear separation between:
 - Before claiming any phase is complete, run and confirm passing results for:
   ```bash
   pnpm install --frozen-lockfile
+  pnpm why sharp
+  pnpm why postcss
   pnpm lint
   pnpm typecheck
   pnpm build
+  pnpm exec prisma validate
   pnpm audit --audit-level=high
+  git diff --check
   ```
 - Run relevant tests if they exist. Do not suppress TypeScript or ESLint errors to obtain a false pass.
 - After every phase, update:
