@@ -14,9 +14,10 @@ A production-grade pre-owned motorcycle dealership management system and public 
 - **Language:** TypeScript (strict mode)
 - **Styling:** Tailwind CSS 4
 - **Database & ORM:** PostgreSQL 18 & Prisma 7 (`@prisma/adapter-pg`)
+- **Authentication:** Argon2id, SHA-256 session digests, HttpOnly cookies, HMAC login rate limiting
 - **Validation:** Zod
 - **Package Manager:** pnpm 11 (`packageManager: pnpm@11.1.2`, root overrides in `pnpm-workspace.yaml`)
-- **Linting:** ESLint 9
+- **Linting & Testing:** ESLint 9 & Vitest 3
 
 ---
 
@@ -26,8 +27,8 @@ A production-grade pre-owned motorcycle dealership management system and public 
 - **Phase 0.5 (Baseline & Hardening):** Complete
 - **Phase 0.5.1 (Dependency Security Gate & SEO Metadata Correction):** Complete
 - **Phase 0.5.2 (GitHub Actions Runtime Correction):** Complete
-- **Phase 1 & Phase 1.1 (PostgreSQL Environment & Schema Corrections):** Implemented on feature branch `phase-1/postgres-prisma-schema` (PR #1 pending review)
-- **Phase 2 (Admin Authentication & Admin Shell):** NOT APPROVED — Pending PR #1 review and explicit user permission.
+- **Phase 1 & Phase 1.1 (PostgreSQL Environment & Schema Corrections):** Merged into `main`
+- **Phase 2 (Admin Authentication, Sessions, Throttle & Admin Shell):** Complete on feature branch `phase-2/admin-authentication` (PR pending review)
 
 ---
 
@@ -50,61 +51,44 @@ Developers MUST set a secure local password in `.env` and update both database c
 - `POSTGRES_PORT="5434"`
 - `DATABASE_URL="postgresql://bike_admin:SET_YOUR_LOCAL_DEVELOPMENT_PASSWORD@127.0.0.1:5434/bike_management_dev?schema=public"`
 - `SHADOW_DATABASE_URL="postgresql://bike_admin:SET_YOUR_LOCAL_DEVELOPMENT_PASSWORD@127.0.0.1:5434/bike_management_shadow?schema=public"`
+- `AUTH_RATE_LIMIT_SECRET="SET_A_RANDOM_SECRET_OF_AT_LEAST_32_BYTES"`
 
 ### 2. Start PostgreSQL Container
-Start the PostgreSQL 18 development and shadow databases (mounts named volume at `/var/lib/postgresql` and executes `./docker/postgres/init/01-create-shadow-database.sh` on first boot):
+Start the PostgreSQL 18 development and shadow databases:
 
 ```powershell
 docker compose up -d --wait
 ```
 
-### 3. Check Container Health
-Verify that the PostgreSQL container is running and healthy:
-
-```powershell
-docker compose ps
-```
-
-### 4. Apply Database Migrations
-Apply database migrations (includes custom CHECK constraints, partial cover index, and payment/expense immutability triggers):
+### 3. Apply Database Migrations & Generate Client
+Apply database migrations (includes custom CHECK constraints, partial cover index, payment/expense immutability triggers, and throttle table):
 
 ```powershell
 pnpm exec prisma migrate dev
-```
-
-### 5. Generate Prisma Client
-Generate the type-safe Prisma Client to `src/generated/prisma`:
-
-```powershell
 pnpm exec prisma generate
 ```
 
-### 6. Seed Foundation Data
+### 4. Seed Foundation Data
 Seed the singleton `ShopSetting` foundation data:
 
 ```powershell
 pnpm exec prisma db seed
 ```
 
-### 7. Run Database Integrity & Trigger Test Suite
-Run the 37-point database trigger and constraint verification suite:
+### 5. Create First Owner Account (Interactive CLI)
+To create an administrative account, run the interactive TTY CLI:
+
+```powershell
+pnpm admin:create
+```
+
+### 6. Run Test Suites
+Run the database integrity, unit auth, and database integration test suites:
 
 ```powershell
 pnpm db:test-integrity
-```
-
-### 8. Open Prisma Studio (Optional)
-Inspect and manage database records interactively:
-
-```powershell
-pnpm run db:studio
-```
-
-### 9. Stop PostgreSQL Container
-When finished development, stop the database container:
-
-```powershell
-docker compose down
+pnpm test
+pnpm test:admin-auth
 ```
 
 ---
@@ -125,6 +109,8 @@ pnpm exec prisma migrate status
 pnpm exec prisma db seed
 pnpm exec prisma db seed
 pnpm db:test-integrity
+pnpm test
+pnpm test:admin-auth
 pnpm lint
 pnpm typecheck
 pnpm build

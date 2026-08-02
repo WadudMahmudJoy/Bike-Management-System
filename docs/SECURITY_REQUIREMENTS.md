@@ -4,9 +4,18 @@ This document specifies the security controls, architecture, and requirements fo
 
 ---
 
-## 1. IMPLEMENTED IN PHASE 0.5, PHASE 0.5.1, PHASE 0.5.2, PHASE 1 & PHASE 1.1
+## 1. IMPLEMENTED IN PHASES 0 THROUGH 2
 
-The following baseline security and database controls are active in the codebase:
+The following baseline security, database, and authentication controls are active in the codebase:
+
+### Authentication & Session Security (Phase 2)
+- **Argon2id Hashing:** OWASP-aligned parameters (`memoryCost: 19456`, `timeCost: 2`, `parallelism: 1`). Plain-text passwords are never logged or stored.
+- **Anti-Enumeration Dummy Verification:** Non-existent account lookups run constant-work Argon2id verification (`verifyAgainstDummy`) to prevent timing attacks.
+- **SHA-256 Session Digests:** Raw 32-byte tokens exist only in cookies. `AdminSession.sessionTokenHash` stores deterministic SHA-256 hex digests.
+- **HTTP Cookie Enforcement:** `HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` in production, `__Host-` prefix in production.
+- **HMAC-SHA256 Login Throttling:** `AdminLoginThrottle` keyed by HMAC-SHA256 hex digest (`normalizedEmail:clientAddress`). Stores zero raw email or IP data. Enforces 5-failure limit, 15-minute window, and 15-minute block duration.
+- **Strict Proxy & DAL Separation:** Edge proxy (`src/proxy.ts`) performs optimistic cookie presence checks without DB/Crypto dependencies. Real authorization occurs in Server Components via `requireAdmin()`.
+- **Interactive Owner Bootstrap CLI:** `pnpm admin:create` enforces interactive TTY execution and hidden password entry. No default credentials in seeds.
 
 ### Database Integrity & Engine-Level Security (Phase 1 & Phase 1.1)
 - **Database Engine Isolation:** Local PostgreSQL containerized using `postgres:18-alpine` in `compose.yaml` and bound strictly to `127.0.0.1:5434` (`localhost` loopback only). Mounts named volume at `/var/lib/postgresql`. Public binding `0.0.0.0` is strictly forbidden.
@@ -15,16 +24,16 @@ The following baseline security and database controls are active in the codebase
   - **`PurchasePayment` & `SalePayment` Triggers:** Block `DELETE` statements on payment records. Block `UPDATE` statements on core financial fields using `IS DISTINCT FROM`. Require new payments to start unvoided (`isVoided = false`). Restrict voiding to a one-way transition (`isVoided = true`) requiring `voidedAt`, `voidedByAdminId`, and a non-empty `voidReason`. Block unvoiding (`isVoided = false`).
   - **`Expense` Trigger (`fn_prevent_expense_tampering`):** Enforces identical append-only immutability rules on operational expense records.
   - **`AuditLog` & `BikeStatusHistory` Triggers:** Block both `UPDATE` and `DELETE` operations, enforcing strict append-only behavior at the database engine level.
-- **Database CHECK Constraints:** Enforce nonnegative monetary values, positive purchase agreed prices, nonnegative sale prices (`finalPrice = listedPrice - discountAmount`), valid year ranges (1900–2100), positive engine capacity, nonnegative mileage, valid budget ranges (`minimumBudget <= maximumBudget`), percentage discount limits (0–100), encryption bundle completeness, and internal void field metadata consistency.
+- **Database CHECK Constraints:** Enforce nonnegative monetary values, positive purchase agreed prices, nonnegative sale prices (`finalPrice = listedPrice - discountAmount`), valid year ranges (1900–2100), positive engine capacity, nonnegative mileage, valid budget ranges (`minimumBudget <= maximumBudget`), percentage discount limits (0–100), encryption bundle completeness, internal void field metadata consistency, and throttle constraints (`failureCount >= 0`, `keyHash ~ '^[a-f0-9]{64}$'`, `blockedUntil >= windowStartedAt`).
 - **Partial Unique Index:** `idx_bike_image_cover` enforces that a bike can have at most one cover image (`isCover = true`).
 - **Financial Relation Protection:** Foreign keys on `Purchase`, `Sale`, `PurchasePayment`, `SalePayment`, `Expense`, `CustomerIdentity`, `CustomerBankAccount`, `CustomerDocument`, `CustomerAccount`, `BikeDocument`, and `BikeStatusHistory` use `onDelete: Restrict`. Financial records can never be cascade-deleted.
-- **Mandatory Runtime Integrity Test Suite (`pnpm db:test-integrity`):** Prisma schema drift checks (`prisma migrate diff`) do not validate unsupported custom PostgreSQL triggers or CHECK constraints. A 37-point runtime integrity test suite (`scripts/test-database-integrity.ts`) runs inside a rolled-back transaction during local verification and CI.
+- **Mandatory Runtime Integrity Test Suite (`pnpm db:test-integrity`):** Executes 37 database assertions inside a rolled-back transaction during local verification and CI.
 
 ### Blocking CI Security Gate (`.github/workflows/ci.yml`)
 - **Enforced Blocking Security Audit:** `pnpm audit --audit-level=high` runs in CI as a mandatory blocking gate.
 - **No `continue-on-error`:** `continue-on-error: true`, shell exit-code suppression (`|| true`), or blanket advisory bypasses are strictly prohibited.
 - **Root Workspace Dependency Overrides (`pnpm-workspace.yaml`):** Transitive dependency vulnerabilities in pnpm 11 are resolved via `overrides` in `pnpm-workspace.yaml` (`sharp: 0.35.3`, `postcss: 8.5.25`).
-- **CI Database Integration:** CI pipeline runs a disposable PostgreSQL 18 service container with automated migration deployment, schema drift check (`prisma migrate diff`), migration status check, double-pass seed idempotency check, and runtime integrity test (`pnpm db:test-integrity`).
+- **CI Database Integration:** CI pipeline runs a disposable PostgreSQL 18 service container with automated migration deployment, schema drift check (`prisma migrate diff`), migration status check, double-pass seed idempotency check, runtime integrity test (`pnpm db:test-integrity`), unit auth tests (`pnpm test`), and admin auth integration tests (`pnpm test:admin-auth`).
 - **Environment Telemetry Disabled:** `NEXT_TELEMETRY_DISABLED: "1"` set in CI workflow.
 
 ### HTTP Response Headers (`next.config.ts`)
@@ -35,11 +44,6 @@ The following baseline security and database controls are active in the codebase
 ## 2. PLANNED & DEFERRED SECURITY CONTROLS
 
 The following security controls are specified in architecture but deferred to future implementation phases:
-
-### Authentication Architecture (Deferred to Phase 2)
-- **Password Hashing:** Argon2id is locked as the password hashing algorithm. Plain-text passwords will never be logged or stored.
-- **Session Tokens:** Delivered via `HttpOnly`, `SameSite=Lax/Strict`, `Secure` cookies. Database stores SHA-256 hashes (`sessionTokenHash`).
-- **Session Lifecycle & Rate Limiting:** Session rotation, revocation, and exponential backoff rate limiting per IP and per account.
 
 ### Runtime Authenticated Encryption Services (Deferred to Phase 3)
 - **AES-256-GCM Runtime Services:** Server-side encryption and decryption routines for customer NID numbers and bank account numbers.

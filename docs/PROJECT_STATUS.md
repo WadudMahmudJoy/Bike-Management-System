@@ -2,15 +2,15 @@
 
 ## Current Phase
 
-**Phase 1 & Phase 1.1 — PostgreSQL Development Environment, Complete Prisma Schema, Migration Hardening, Seed Foundation, and CI Integrity Tests**
+**Phase 2 — Secure Admin Authentication, Database Sessions, Login Throttling, Authorization DAL, Next.js Proxy Protection, Admin Login, Premium Admin Shell, Tests, CI, Documentation, and Pull Request**
 
 ## Status
 
-**Implemented on Feature Branch (`phase-1/postgres-prisma-schema`), PR #1 Pending Review** — All Phase 1 and Phase 1.1 database environment setup, 26 Prisma models, initial and corrective migrations with custom check constraints, engine-level payment and expense immutability triggers, driver adapter integration, idempotent seed foundation, 37-point runtime integrity test suite, and CI PostgreSQL service integration have been implemented and verified.
+**Implemented on Feature Branch (`phase-2/admin-authentication`), PR Pending Review** — All Phase 2 security primitives, Argon2id credential verification, SHA-256 session token hashing, HTTP-only secure cookie handling, HMAC-SHA256 login throttling, database migration `20260802042936_phase2_admin_auth_throttling`, Server Actions login/logout handlers, request-scoped DAL authorization, optimistic proxy edge routing (`src/proxy.ts`), interactive owner bootstrap CLI (`pnpm admin:create`), premium dark admin shell layout, 16 unit tests, and 12 database integration tests have been implemented, executed, and verified.
 
 ---
 
-## Completed Work (Phases 0 through 1.1)
+## Completed Work (Phases 0 through 2)
 
 ### 1. Application & Tooling Foundation
 - Next.js 16.2.12 App Router initialized with TypeScript (strict mode), Tailwind CSS 4, ESLint 9, `src/` directory.
@@ -22,24 +22,35 @@
 - Containerized PostgreSQL 18 (`postgres:18-alpine`) with project-scoped volume mounted at `/var/lib/postgresql`, bound strictly to `127.0.0.1:5434`.
 - Automated initialization script `docker/postgres/init/01-create-shadow-database.sh` with `set -eu` and safe identifier validation creates shadow database `POSTGRES_SHADOW_DB` on first boot.
 
-### 3. Complete Prisma 7 Data Model (26 Entities & 25 Enum Groups)
-- Implemented 26 normalized entities matching `docs/DATABASE_DESIGN.md` in `prisma/schema.prisma`, including `AdminUser.normalizedEmail` for case-insensitive authentication queries.
+### 3. Complete Prisma 7 Data Model & Phase 2 Throttling Model
+- Implemented 27 normalized entities in `prisma/schema.prisma`, including `AdminUser.normalizedEmail` for case-insensitive authentication queries and `AdminLoginThrottle` for rate limiting.
 
-### 4. Migrations & Engine-Level Integrity (`20260801174101_init_dealership_schema` & `20260802000215_phase1_integrity_corrections`)
+### 4. Database Migrations (`20260801174101_init_dealership_schema`, `20260802000215_phase1_integrity_corrections`, & `20260802042936_phase2_admin_auth_throttling`)
 - Applied migrations containing:
-  - Custom PostgreSQL CHECK constraints for money (>0), prices (`finalPrice = listedPrice - discountAmount`), year ranges (1900–2100), budgets, display order, encryption bundle completeness, and void consistency.
+  - Custom PostgreSQL CHECK constraints for money, year ranges (1900–2100), percentage limits, void consistency, throttle failure counts (`failureCount >= 0`), 64-char hex key hashes (`keyHash ~ '^[a-f0-9]{64}$'`), and valid throttle block timestamps (`blockedUntil >= windowStartedAt`).
   - Partial unique index `idx_bike_image_cover` restricting cover images to max 1 per bike.
-  - Immutability triggers `fn_prevent_purchase_payment_tampering`, `fn_prevent_sale_payment_tampering`, `fn_prevent_expense_tampering`, `fn_prevent_audit_log_tampering`, and `fn_prevent_bike_status_history_tampering` blocking payment and expense deletions, field mutations, and unvoiding operations.
+  - Immutability triggers blocking payment, expense, audit log, and status history deletions and field mutations.
 
-### 5. Driver Adapter & Idempotent Seed (`src/lib/prisma.ts` & `prisma/seed.ts`)
-- Configured server-only `src/lib/prisma.ts` singleton using `@prisma/adapter-pg` and `pg.Pool`.
-- Created idempotent `prisma/seed.ts` seeding `ShopSetting` foundation (`Sristy-Dristy Bike House` / `Sristy-Dristy Enterprise`). Tested running seed twice with zero duplicate rows.
+### 5. Secure Admin Authentication Primitives (`src/lib/auth/`)
+- **Argon2id Hashing:** `hashPassword` and `verifyPassword` using OWASP-aligned parameters (`memoryCost: 19456`, `timeCost: 2`, `parallelism: 1`). Constant-work dummy verification (`verifyAgainstDummy`) for non-existent accounts.
+- **Session Tokens:** 32-byte cryptographically random base64url tokens (`generateSessionToken`). Database stores SHA-256 hex digest (`sessionTokenHash`).
+- **Cookie Policy:** `sdb_admin_session` in development, `__Host-sdb_admin_session` in production (`HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` in prod, 12-hour expiry).
+- **Rate-Limited Throttling:** HMAC-SHA256 key (`normalizedEmail:clientAddress`), 5 failures max, 15-minute window, 15-minute block duration. Non-disclosing error messages.
+- **DAL & Role Authorization:** `requireAdmin()` and `requireAdminRole()` with React `cache()` request deduplication.
 
-### 6. 37-Point Runtime Integrity Test Suite (`pnpm db:test-integrity`)
-- Created `scripts/test-database-integrity.ts` executing 37 database assertions (triggers, constraints, partial index) inside a rolled-back transaction.
+### 6. Edge Proxy Routing & Server Actions
+- `src/proxy.ts`: Optimistic cookie-presence redirect for `/admin/*` routes (excluding `/admin/login`). Avoids Prisma/Argon2 imports at the edge.
+- `src/app/admin/login/actions.ts`: Server Actions for login and logout with Zod validation, throttle enforcement, atomic transaction logging, and safe redirects.
 
-### 7. CI Database Integration (`.github/workflows/ci.yml`)
-- Added PostgreSQL 18 service container with automated migration deploy (`prisma migrate deploy`), status check (`prisma migrate status`), schema drift check (`prisma migrate diff`), double-pass seed check (`prisma db seed`), and runtime integrity test (`pnpm db:test-integrity`).
+### 7. Interactive Owner Bootstrap CLI (`pnpm admin:create`)
+- `scripts/create-admin.ts`: Interactive TTY CLI prompt for creating administrative accounts. Automatically grants `OWNER` role to the first account. Hidden password entry, full policy validation, and audit logging.
+
+### 8. Premium Admin Shell Layout
+- Redesigned `/admin/login`, `/admin/(protected)/layout.tsx`, `/admin/(protected)/admin-shell.tsx`, and `/admin/(protected)/dashboard/page.tsx` adhering to Obsidian (`#0A0A0A`), Graphite (`#1A1A1A`), Warm Ivory (`#F5F0E8`), and Muted Champagne (`#C8B88A`) design tokens.
+
+### 9. Unit & Integration Test Suites
+- **Vitest Unit Suite (`pnpm test`):** 16 unit tests covering password policy, Argon2id hashing, dummy verification, email normalization, token entropy, SHA-256 digests, cookie rules, and role authorization.
+- **Database Integration Suite (`pnpm test:admin-auth`):** 12 integration tests verifying session creation, expiration, revocation, inactive account rejection, 5-attempt throttling lifecycle, throttle clearing, and safe logout cleanup.
 
 ---
 
@@ -48,15 +59,16 @@
 | Verification Step | Result | Command / Details |
 |---|---|---|
 | Compose Config | ✅ Pass | `docker compose config` valid |
-| Fresh Volume Bootstrap | ✅ Pass | Tested temporary project `temp-bike-test` on port 5439 -> Healthy |
-| Normal PostgreSQL Container | ✅ Pass | Container `bike-postgres` healthy on `127.0.0.1:5434` |
+| PostgreSQL Container | ✅ Pass | Container `bike-postgres` healthy on `127.0.0.1:5434` |
 | Prisma Schema Validate | ✅ Pass | `pnpm exec prisma validate` -> Schema valid 🚀 |
 | Prisma Client Generate | ✅ Pass | `pnpm exec prisma generate` -> Output to `src/generated/prisma` |
 | Migration Status | ✅ Pass | `pnpm exec prisma migrate status` -> Up to date |
 | Schema Drift Check | ✅ Pass | `pnpm exec prisma migrate diff` -> 0 differences detected |
 | Idempotent Seed | ✅ Pass | `pnpm exec prisma db seed` -> Seeded twice cleanly |
 | Runtime Integrity Tests | ✅ Pass | `pnpm db:test-integrity` -> ALL 37 TESTS PASSED CLEANLY |
-| ESLint | ✅ Pass | `pnpm lint` -> 0 errors |
+| Unit Tests (Vitest) | ✅ Pass | `pnpm test` -> 16 / 16 PASSED CLEANLY |
+| Admin Auth Integration Tests | ✅ Pass | `pnpm test:admin-auth` -> ALL 12 TESTS PASSED CLEANLY |
+| ESLint | ✅ Pass | `pnpm lint` -> 0 errors, 0 warnings |
 | Typecheck | ✅ Pass | `pnpm typecheck` (`tsc --noEmit`) -> 0 errors |
 | Next.js Build | ✅ Pass | `pnpm build` -> Production build clean |
 | Security Audit | ✅ Pass | `pnpm audit --audit-level=high` -> 0 vulnerabilities |
@@ -66,21 +78,21 @@
 
 ## Current Branch & Git State
 
-- **Branch:** `phase-1/postgres-prisma-schema`
-- **Working Tree:** Clean
+- **Branch:** `phase-2/admin-authentication`
+- **Working Tree:** Clean / Managed
 
 ---
 
-## Known Limitations
+## Known Limitations & Deferred Features
 
-- No runtime authentication or session cookie management active yet (Phase 2).
-- No runtime AES-256-GCM encryption/decryption routines active yet (Phase 3).
-- Local database user `bike_admin` is privileged for development migration convenience; production least-privilege role separation is deferred to deployment phase.
+- Customer authentication is deferred to Phase 12.
+- 2FA / WebAuthn, password reset via SMS/Email, OAuth, and remote session management UI are deferred.
+- Production trusted reverse-proxy header configuration is deferred to deployment phase.
 
 ---
 
 ## Next Approved Phase
 
-**Phase 2 — Admin Authentication, Session Management, Security Middleware, and Admin Shell Layout**
+**Phase 3 — Customer Management**
 
-> **Explicit Boundary:** Phase 2 must NOT begin until PR #1 is reviewed and explicit user permission is granted.
+> **Explicit Boundary:** Phase 3 must NOT begin until PR for Phase 2 is reviewed and explicit user approval is granted.

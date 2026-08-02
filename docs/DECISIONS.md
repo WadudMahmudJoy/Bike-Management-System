@@ -82,3 +82,23 @@ This document logs all authoritative architectural and product decisions for the
 ### 2026-08-02: Mandatory Database Integrity Test Suite (`pnpm db:test-integrity`)
 - **Decision:** Create `scripts/test-database-integrity.ts` executing 37 database assertions (triggers, check constraints, partial index) inside a rolled-back transaction, integrated into CI.
 - **Rationale:** Prisma schema drift checks (`prisma migrate diff`) do not validate unsupported database triggers or custom CHECK constraints; explicit runtime integrity testing is mandatory.
+
+---
+
+## Phase 2 Secure Admin Authentication & Shell Decisions (2026-08-02)
+
+### 2026-08-02: Argon2id Credential Hashing
+- **Decision:** Admin credentials are hashed using Argon2id (`memoryCost: 19456`, `timeCost: 2`, `parallelism: 1`). Constant-work dummy verification (`verifyAgainstDummy`) executes when an email is not found to prevent timing-based enumeration attacks.
+- **Rationale:** Aligns with OWASP guidelines and prevents account enumeration.
+
+### 2026-08-02: Privacy-Preserving HMAC-SHA256 Login Throttling
+- **Decision:** Rate limiting uses `AdminLoginThrottle` keyed by an HMAC-SHA256 hex digest (`normalizedEmail:clientAddress`). Neither raw emails nor IP addresses are stored.
+- **Rationale:** Prevents brute-force credential stuffing while preserving client privacy.
+
+### 2026-08-02: Strict Edge Proxy vs. Server DAL Separation
+- **Decision:** `src/proxy.ts` performs optimistic cookie-presence check only and does NOT import database ORMs or Argon2 native modules. Real authentication and role validation execute in Server Components and Server Actions via `requireAdmin()`.
+- **Rationale:** Keeps the edge runtime lightweight while ensuring true database-backed security enforcement on the server.
+
+### 2026-08-02: Interactive Bootstrap CLI (`pnpm admin:create`)
+- **Decision:** First administrator account creation requires explicit interactive TTY invocation via `pnpm admin:create` (`scripts/create-admin.ts`) with hidden password input. Automatic seeding of default credentials in `prisma/seed.ts` is strictly prohibited.
+- **Rationale:** Prevents default credential vulnerabilities in production environments.

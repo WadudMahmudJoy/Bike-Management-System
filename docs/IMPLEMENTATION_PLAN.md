@@ -23,27 +23,30 @@ This document details the 14-phase roadmap for the **Bike Management System** (S
 - **SEO Foundation:** Created `docs/SEO_REQUIREMENTS.md`. Created `src/lib/site-config.ts` with build-safe URL validation and indexing controls (`SITE_INDEXING_ENABLED`). Updated `src/app/layout.tsx` metadata. Created dynamic route handlers `src/app/robots.ts` and `src/app/sitemap.ts`. Updated `/admin` page metadata with `noindex, nofollow, noarchive`.
 - **CI Pipeline:** Created `.github/workflows/ci.yml` running lint, typecheck, build, and `pnpm audit`. Added `.github/dependabot.yml` for weekly dependency checks. Added `"packageManager": "pnpm@11.1.2"` to `package.json`.
 
+### Phase 1 & Phase 1.1 — PostgreSQL Development Environment, Prisma Schema, Migration Hardening & Database Integrity
+**Status: Complete (Merged into `main`)**
+- Local PostgreSQL 18 development container in `compose.yaml` with shadow database initializer `01-create-shadow-database.sh`.
+- Defined complete 26-model schema in `prisma/schema.prisma` with driver adapter `@prisma/adapter-pg`.
+- Applied migrations `20260801174101_init_dealership_schema` and `20260802000215_phase1_integrity_corrections` with PostgreSQL CHECK constraints, partial unique index `idx_bike_image_cover`, and engine-level payment/expense immutability triggers.
+- Built idempotent `prisma/seed.ts` foundation and 37-point runtime database integrity test suite (`pnpm db:test-integrity`).
+
+### Phase 2 — Secure Admin Authentication and Admin Shell
+**Status: Complete on Feature Branch (`phase-2/admin-authentication`)**
+- Built Argon2id credential hashing (`hashPassword`, `verifyPassword`, `verifyAgainstDummy`) with OWASP parameters.
+- Implemented SHA-256 session token digests (`AdminSession.sessionTokenHash`) and 12-hour HttpOnly secure cookies.
+- Implemented privacy-preserving login rate limiting (`AdminLoginThrottle`) using HMAC-SHA256 digests. Applied migration `20260802042936_phase2_admin_auth_throttling` with custom CHECK constraints.
+- Created `src/proxy.ts` edge proxy and server authorization DAL (`requireAdmin()`, `requireAdminRole()`).
+- Created login Server Actions (`src/app/admin/login/actions.ts`) with atomic audit logging and generic error responses.
+- Built interactive owner bootstrap CLI (`pnpm admin:create`).
+- Designed premium dark admin shell layout (`admin-shell.tsx`) using Obsidian, Graphite, Warm Ivory, and Muted Champagne design tokens.
+- Created 16 Vitest unit tests (`pnpm test`) and 12 database integration tests (`pnpm test:admin-auth`).
+
 ---
 
 ## Upcoming Phases
 
-### Phase 1 — PostgreSQL Development Environment and Prisma Schema
-**Status: Next Approved Phase (Requires User Permission)**
-- Set up local PostgreSQL development database.
-- Define complete Prisma schema based strictly on `docs/DATABASE_DESIGN.md`.
-- Create initial migration (`prisma migrate dev`).
-- Create seed script with synthetic test data (no real customer data).
-- Verify schema matches database design specification.
-
-### Phase 2 — Secure Admin Authentication and Admin Shell
-- Build admin login page (`/admin/login`).
-- Implement Argon2id password verification and server-side session management (`AdminSession`).
-- Implement `HttpOnly`, `Secure`, `SameSite` session cookie handling storing `sessionTokenHash`.
-- Build collapsible admin layout with sidebar navigation.
-- Implement server-side middleware authorization for `/admin/*` routes.
-- Implement login rate limiting and session revocation.
-
 ### Phase 3 — Customer Management
+**Status: Next Approved Phase (Requires User Permission)**
 - Build Customer CRUD interfaces (create, view, edit, list, filter).
 - Implement Bangladesh phone number normalization and duplicate warnings.
 - Implement NID lifecycle (`PENDING` -> `SUBMITTED` -> `VERIFIED`).
@@ -123,4 +126,3 @@ This document details the 14-phase roadmap for the **Bike Management System** (S
 2. Each phase is committed separately and pushed after clean verification.
 3. Every phase updates `docs/PROJECT_STATUS.md` and `docs/HANDOFF.md`.
 4. No phase begins without explicit user approval.
-5. **Phase 1 must not begin during Phase 0.5.**
