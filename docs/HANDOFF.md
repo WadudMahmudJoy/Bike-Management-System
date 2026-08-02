@@ -35,13 +35,13 @@ Before writing code or editing files, read these documents in full:
   - `20260801174101_init_dealership_schema`
   - `20260802000215_phase1_integrity_corrections`
   - `20260802042936_phase2_admin_auth_throttling` (custom CHECK constraints for throttle failure count, keyHash hex format, and blockedUntil relation).
-- **Authentication Stack:** Argon2id credential hashing (`argon2`), SHA-256 session token digests (`AdminSession`), `HttpOnly` secure session cookies, atomic UPSERT login rate limiting, server-only authentication service (`authenticateAdminCredentials`), Server Actions (`src/app/admin/login/actions.ts`), request-scoped React `cache()` DAL (`src/lib/auth/dal.ts`), edge proxy protection (`src/proxy.ts`), interactive owner bootstrap CLI (`scripts/create-admin.ts`), and premium dark admin shell (`src/app/admin/(protected)/admin-shell.tsx`).
+- **Authentication Stack:** Argon2id credential hashing (`argon2`), SHA-256 session token digests (`AdminSession`), `HttpOnly` secure session cookies using exact session `expiresAt`, atomic UPSERT login rate limiting clearing stale `blockedUntil` on window rollover, server-only authentication service (`authenticateAdminCredentials`), structured session revocation (`revokeAdminSessionToken`), Server Actions (`src/app/admin/login/actions.ts`), request-scoped React `cache()` DAL (`src/lib/auth/dal.ts`), edge proxy protection (`src/proxy.ts`), interactive owner bootstrap CLI (`scripts/create-admin.ts`) with 3-attempt serializable retry, and premium dark admin shell (`src/app/admin/(protected)/admin-shell.tsx`).
 - **Test Suites:**
   - 37-point runtime database integrity test suite (`pnpm db:test-integrity`).
-  - 20-point Vitest auth unit test suite (`pnpm test`).
-  - 17-point admin auth database integration test suite (`pnpm test:admin-auth`).
+  - 27-point Vitest auth unit test suite (`pnpm test`).
+  - 20-point admin auth database integration test suite (`pnpm test:admin-auth`).
   - 4-point owner CLI non-interactive smoke test (`pnpm test:admin-cli-smoke`).
-- **CI Pipeline:** `.github/workflows/ci.yml` includes PostgreSQL 18 service container, `prisma validate`, `prisma generate`, `prisma migrate deploy`, `prisma migrate status`, `prisma migrate diff`, double-pass `prisma db seed`, `pnpm db:test-integrity`, `pnpm test`, `pnpm test:admin-auth`, `pnpm test:admin-cli-smoke`, lint, typecheck, build, and blocking audit gate.
+- **CI Pipeline:** `.github/workflows/ci.yml` includes PostgreSQL 18 service container with `pg_isready -U postgres -d bike_management_test`, `prisma validate`, `prisma generate`, `prisma migrate deploy`, `prisma migrate status`, `prisma migrate diff`, double-pass `prisma db seed`, `pnpm db:test-integrity`, `pnpm test`, `pnpm test:admin-auth`, `pnpm test:admin-cli-smoke`, lint, typecheck, build, and blocking audit gate.
 
 ---
 
@@ -98,4 +98,4 @@ When starting Phase 3 (after explicit user approval and Phase 2 PR review):
 
 ---
 
-**Phase 2 & Phase 2.1 are complete on feature branch `phase-2/admin-authentication`. PR #7 is updated and pending review. Do not merge the PR. Do not begin Phase 3 until the user reviews the PR and gives explicit permission.**
+**Phases 2, 2.1, & 2.2 are complete on feature branch `phase-2/admin-authentication`. PR #7 is updated and pending review. Do not merge the PR. Do not begin Phase 3 until the user reviews the PR and gives explicit permission.**

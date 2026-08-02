@@ -19,9 +19,9 @@ The administrative authentication system provides secure, database-backed sessio
 - **Parallelism:** 1 lane
 - **OWASP Alignment:** Sourced from OWASP Password Storage Guidelines.
 
-### Password Validation Rules
-- **Length:** 12 to 128 characters.
-- **Character Set:** Full Unicode support including spaces and non-English characters.
+### Password Validation & Guard Rules
+- **Length:** 12 to 128 characters. Passwords above 128 characters are rejected generically before Argon2 hashing to prevent CPU exhaustion.
+- **Character Set:** Full Unicode support including spaces and non-English characters. Password input spaces are preserved without trimming or transformation.
 - **Forbidden Input:** Empty strings and whitespace-only strings are rejected.
 - **Truncation:** No silent truncation is performed.
 - **Complexity Rules:** No arbitrary mandatory character class rules (e.g. forced symbols) to prevent user-side password degradation.
@@ -31,10 +31,10 @@ When an unknown email or inactive account is queried during login, authenticatio
 
 ---
 
-## 3. Email Normalization
+## 3. Email Normalization & Input Handling
 
 - **Display Email:** `AdminUser.email` preserves the user's original casing.
-- **Normalized Email:** `AdminUser.normalizedEmail` stores a trimmed, lowercased canonical representation (`@unique @db.VarChar(255)`).
+- **Normalized Email:** `AdminUser.normalizedEmail` stores a trimmed, lowercased canonical representation (`@unique @db.VarChar(255)`). Surrounding email whitespace is accepted and normalized before query execution.
 - **Lookup Rule:** Authentication queries query exclusively against `normalizedEmail`.
 - **Validation:** Validated using Zod `emailSchema` before normalization. Provider-specific mutations (such as Gmail dot stripping) are intentionally prohibited.
 
@@ -45,7 +45,7 @@ When an unknown email or inactive account is queried during login, authenticatio
 - **Raw Token Generation:** Cryptographically secure 32-byte random buffer, base64url-encoded (`src/lib/auth/token.ts`).
 - **Token Delivery:** Delivered exclusively via HTTP cookies set by Server Actions. Raw tokens are never returned to Client Components, never logged, and never stored in the database.
 - **Database Storage:** The `AdminSession` table stores only the SHA-256 hex digest (`sessionTokenHash`).
-- **Session Expiry:** Absolute lifetime of 12 hours (`SESSION_LIFETIME_MS = 43200000`).
+- **Session Expiry:** Absolute lifetime of 12 hours (`SESSION_LIFETIME_MS = 43200000`). Database session `expiresAt` is the authoritative source for session cookie `expires` and `maxAge`.
 
 ---
 
@@ -64,19 +64,20 @@ When an unknown email or inactive account is queried during login, authenticatio
 
 ## 6. Client Address Resolution & Proxy Trust
 
-- **Default Untrusted Mode:** Forwarding headers (`x-forwarded-for`, `x-real-ip`, etc.) are untrusted by default. When `AUTH_TRUST_PROXY` is false or unset, `getClientAddress()` returns the stable fallback identifier `unknown-client`.
+- **Default Untrusted Mode:** Forwarding headers (`x-forwarded-for`, `x-real-ip`, etc.) are untrusted by default. When `AUTH_TRUST_PROXY` is false or unset, `getClientAddress()` returns the stable fallback identifier `unknown-client`. Tested via pure resolver `resolveClientAddress`.
 - **Trusted Proxy Configuration:** Enabled only when `AUTH_TRUST_PROXY="true"` is explicitly set in environment variables and `AUTH_TRUSTED_IP_HEADER` names an explicitly allowlisted header (e.g. `x-real-ip`).
-- **IP Validation:** Extracted header values are validated using Node's `net.isIP()`. Comma-separated multi-IP lists and malformed inputs are rejected and fall back to `unknown-client`.
+- **IP Validation:** Extracted header values are validated using Node's `net.isIP()`. Comma-separated multi-IP lists, oversized strings (>45 chars), unallowlisted headers, and malformed inputs are rejected and fall back to `unknown-client`.
 - **Privacy Guarantee:** Raw IP addresses are never logged or exposed in public error responses.
 
 ---
 
-## 7. Atomic Concurrency-Safe Login Throttling
+## 7. Atomic Concurrency-Safe Login Throttling & Rollover
 
 - **Mechanism:** Keyed HMAC-SHA256 (`createHmac("sha256", AUTH_RATE_LIMIT_SECRET)`).
 - **Key Input:** `normalizedEmail:clientAddress` hex digest stored in `AdminLoginThrottle.keyHash`.
 - **Privacy:** Neither raw email nor IP address is stored in the database.
-- **Atomic UPSERT Query:** `recordFailedAttempt()` uses an atomic PostgreSQL `INSERT ... ON CONFLICT ("keyHash") DO UPDATE ...` query. This guarantees zero lost increments under high concurrency and eliminates transaction serialization aborts.
+- **Atomic UPSERT Query:** `recordFailedAttempt()` uses an atomic PostgreSQL `INSERT ... ON CONFLICT ("keyHash") DO UPDATE ...` UPSERT query. This guarantees zero lost increments under high multi-connection concurrency and eliminates deadlock aborts.
+- **Window Rollover:** When an existing throttle window expires (`windowStartedAt < windowThreshold`), the UPSERT statement resets `failureCount = 1`, `windowStartedAt = now`, `lastAttemptAt = now`, and clears `blockedUntil = NULL` to satisfy PostgreSQL CHECK constraint `chk_throttle_blocked_after_window`.
 - **Policy:**
   - Max Failures: 5 failed attempts (`MAX_LOGIN_ATTEMPTS = 5`).
   - Window Duration: 15 minutes (`THROTTLE_WINDOW_MS = 900000`).
@@ -96,11 +97,20 @@ When an unknown email or inactive account is queried during login, authenticatio
   2. Creates `AdminSession` record storing SHA-256 token hash
   3. Creates `ADMIN_LOGIN_SUCCESS` AuditLog with `entityType: "AdminSession"` and `entityId: session.id`
   4. Deletes the exact matching `AdminLoginThrottle` record
-- **Cookie Security:** The Server Action sets the HttpOnly cookie using the returned `rawToken` after the database transaction succeeds. If cookie delivery fails, the newly created session is revoked.
+- **Cookie Security:** The Server Action sets the HttpOnly cookie using the returned `rawToken` and exact database `expiresAt` after the database transaction succeeds. If cookie delivery fails, the newly created session is revoked.
 
 ---
 
-## 9. Next.js Proxy & Authorization DAL Separation
+## 9. Session Revocation & Logout Audit Semantics
+
+- **Structured Revocation Result (`revokeAdminSessionToken`):** Returns `{ success, sessionId, adminUserId, newlyRevoked, error }`. Database errors during revocation return `success: false` rather than silently converting failures into success.
+- **Idempotent Revocation:** Revoking an already-revoked or missing session token is idempotent (`success: true`, `newlyRevoked: false`).
+- **Logout Audit:** Creates an `ADMIN_LOGOUT` entry referencing `entityType: "AdminSession"` and `entityId: sessionId` ONLY when a session was newly revoked (`newlyRevoked === true`). Does NOT create duplicate audit logs on repeated logout.
+- **Cookie Handling:** Session cookie is deleted upon successful revocation or missing cookie.
+
+---
+
+## 10. Next.js Proxy & Authorization DAL Separation
 
 ### Next.js Proxy (`src/proxy.ts`)
 - Exports precise `config.matcher = ["/admin", "/admin/:path*"]`.
@@ -116,26 +126,27 @@ When an unknown email or inactive account is queried during login, authenticatio
 
 ---
 
-## 10. Owner Bootstrap CLI (`pnpm admin:create`)
+## 11. Owner Bootstrap CLI (`pnpm admin:create`)
 
 - Executable via `pnpm admin:create` (`scripts/create-admin.ts`).
 - Preloads `scripts/register-server-only-mock.cjs` to resolve `server-only` imports during CLI execution.
 - Verified by a dedicated non-interactive TTY smoke test (`pnpm test:admin-cli-smoke`).
 - **Interactive TTY Enforcement:** Fails immediately with exit code 1 if executed non-interactively or piped.
 - **Password Input:** Uses raw terminal mode to mask password entry with asterisks (`*`).
-- **Atomic Bootstrap Transaction:** Uses a `Serializable` transaction to atomically check existing account count, assign `OWNER` role to the first account (`AdminUser.count() === 0`), create the `AdminUser`, and write an `ADMIN_BOOTSTRAP_CREATED` AuditLog.
+- **Hardened Serializable Bootstrap Transaction:** Uses a `Serializable` transaction with a 3-attempt bounded retry for serialization conflicts (`P2034` / `40001`) to atomically check existing account count, assign `OWNER` role to the first account (`AdminUser.count() === 0`), create the `AdminUser`, and write an `ADMIN_BOOTSTRAP_CREATED` AuditLog.
 
 ---
 
-## 11. Testing & Non-Destructive Teardown
+## 12. Testing & Non-Destructive Teardown
 
-- **Unit Test Suite (`pnpm test`):** 20 unit tests verifying email normalization, Argon2id hashing, dummy verification, token entropy, SHA-256 digests, client address proxy trust, cookie options, and role authorization.
-- **Integration Test Suite (`pnpm test:admin-auth`):** 17 integration tests calling production session functions (`createAdminSessionRecord`, `verifyAdminSessionToken`, `revokeAdminSessionToken`), production auth service (`authenticateAdminCredentials`), concurrent throttling, audit trail references, and non-destructive cleanup.
-- **Non-Destructive Teardown:** Synthetic test rows are generated and validated inside an isolated ROLLBACK transaction. Pre-existing throttle rows are verified to survive test suite execution without deletion.
+- **Unit Test Suite (`pnpm test`):** 27 unit tests verifying email normalization, Argon2id hashing, dummy verification, token entropy, SHA-256 digests, pure client address proxy trust resolution across all IPv4/IPv6/malformed/comma-separated branches, cookie options, and role authorization.
+- **Integration Test Suite (`pnpm test:admin-auth`):** 20 integration tests calling production session functions (`createAdminSessionRecord`, `verifyAdminSessionToken`, `revokeAdminSessionToken`), production auth service (`authenticateAdminCredentials`), real multi-connection concurrency throttling (5 simultaneous calls outside transaction), window rollover clearing stale `blockedUntil`, exact expiry matching, audit trail references, and non-destructive isolated ROLLBACK cleanup.
+- **CLI Smoke Test (`pnpm test:admin-cli-smoke`):** 4 smoke test assertions verifying non-interactive TTY protection.
+- **Reliable Process Exit & Teardown:** Tests use `process.exitCode = 1` in error handlers to ensure `finally` cleanup blocks execute completely without leaving dangling rows.
 
 ---
 
-## 12. Deferred Features
+## 13. Deferred Features
 
 The following features are explicitly deferred to future phases:
 - Two-Factor Authentication (2FA) / WebAuthn
