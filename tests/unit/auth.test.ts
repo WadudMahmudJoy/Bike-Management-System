@@ -14,17 +14,21 @@ import {
   PROD_COOKIE_NAME,
   SESSION_LIFETIME_MS,
 } from "@/lib/auth/constants";
-import { getClientAddress, FALLBACK_CLIENT_ADDRESS } from "@/lib/auth/client-address";
+import {
+  getClientAddress,
+  resolveClientAddress,
+  FALLBACK_CLIENT_ADDRESS,
+} from "@/lib/auth/client-address";
 import { hasRequiredRole } from "@/lib/auth/authorization";
 import type { AdminSessionDTO } from "@/lib/auth/types";
 
-describe("Email Primitives", () => {
+describe("Email Primitives & Whitespace Normalization", () => {
   it("trims surrounding whitespace and converts to lowercase", () => {
     expect(normalizeEmail("  Admin@Example.COM  ")).toBe("admin@example.com");
   });
 
-  it("validates and normalizes valid email address", () => {
-    expect(validateAndNormalizeEmail(" User.Name+Tag@Domain.CO.UK ")).toBe(
+  it("validates and normalizes valid email address with leading/trailing whitespace", () => {
+    expect(validateAndNormalizeEmail("   User.Name+Tag@Domain.CO.UK   ")).toBe(
       "user.name+tag@domain.co.uk",
     );
   });
@@ -95,21 +99,91 @@ describe("Token Primitives", () => {
   });
 });
 
-describe("Client Address Resolution & Proxy Trust", () => {
+describe("Client Address Pure Resolver & Proxy Trust", () => {
   afterEach(() => {
     vi.unstubAllEnvs();
   });
 
-  it("returns stable unknown-client fallback by default when AUTH_TRUST_PROXY is false/unset", async () => {
-    vi.stubEnv("AUTH_TRUST_PROXY", "false");
-    const address = await getClientAddress();
+  it("ignores spoofed header and returns unknown-client when trust proxy is disabled", () => {
+    const address = resolveClientAddress({
+      headerGetter: (name) =>
+        name === "x-forwarded-for" ? "203.0.113.195" : null,
+      trustProxy: "false",
+      trustedHeader: "x-forwarded-for",
+    });
     expect(address).toBe(FALLBACK_CLIENT_ADDRESS);
     expect(FALLBACK_CLIENT_ADDRESS).toBe("unknown-client");
   });
 
-  it("ignores spoofed x-forwarded-for headers by default", async () => {
+  it("returns stable fallback when header is missing", () => {
+    const address = resolveClientAddress({
+      headerGetter: () => null,
+      trustProxy: true,
+      trustedHeader: "x-real-ip",
+    });
+    expect(address).toBe(FALLBACK_CLIENT_ADDRESS);
+  });
+
+  it("accepts valid IPv4 address when proxy trust is enabled", () => {
+    const address = resolveClientAddress({
+      headerGetter: (name) => (name === "x-real-ip" ? "203.0.113.195" : null),
+      trustProxy: true,
+      trustedHeader: "x-real-ip",
+    });
+    expect(address).toBe("203.0.113.195");
+  });
+
+  it("accepts valid IPv6 address when proxy trust is enabled", () => {
+    const address = resolveClientAddress({
+      headerGetter: (name) => (name === "x-real-ip" ? "2001:db8::1" : null),
+      trustProxy: "true",
+      trustedHeader: "x-real-ip",
+    });
+    expect(address).toBe("2001:db8::1");
+  });
+
+  it("rejects malformed IP address format", () => {
+    const address = resolveClientAddress({
+      headerGetter: (name) =>
+        name === "x-real-ip" ? "invalid-ip-address" : null,
+      trustProxy: "true",
+      trustedHeader: "x-real-ip",
+    });
+    expect(address).toBe(FALLBACK_CLIENT_ADDRESS);
+  });
+
+  it("rejects comma-separated multi-IP header values", () => {
+    const address = resolveClientAddress({
+      headerGetter: (name) =>
+        name === "x-forwarded-for" ? "203.0.113.195, 70.41.3.18" : null,
+      trustProxy: true,
+      trustedHeader: "x-forwarded-for",
+    });
+    expect(address).toBe(FALLBACK_CLIENT_ADDRESS);
+  });
+
+  it("rejects oversized candidate values exceeding 45 characters", () => {
+    const oversized = "a".repeat(46);
+    const address = resolveClientAddress({
+      headerGetter: (name) => (name === "x-real-ip" ? oversized : null),
+      trustProxy: true,
+      trustedHeader: "x-real-ip",
+    });
+    expect(address).toBe(FALLBACK_CLIENT_ADDRESS);
+  });
+
+  it("rejects unallowlisted header configuration", () => {
+    const address = resolveClientAddress({
+      headerGetter: (name) =>
+        name === "x-custom-header" ? "203.0.113.195" : null,
+      trustProxy: true,
+      trustedHeader: "x-custom-header",
+    });
+    expect(address).toBe(FALLBACK_CLIENT_ADDRESS);
+  });
+
+  it("request wrapper getClientAddress returns unknown-client fallback by default", async () => {
     vi.stubEnv("AUTH_TRUST_PROXY", "false");
-    vi.stubEnv("AUTH_TRUSTED_IP_HEADER", "x-forwarded-for");
     const address = await getClientAddress();
     expect(address).toBe(FALLBACK_CLIENT_ADDRESS);
   });

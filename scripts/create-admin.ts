@@ -149,37 +149,68 @@ async function main() {
     console.log("\n⏳ Hashing password...");
     const passwordHash = await hashPassword(password);
 
-    // Atomic transaction for bootstrap / creation with Serializable isolation level
-    const admin = await prisma.$transaction(
-      async (tx) => {
-        const count = await tx.adminUser.count();
-        const role = count === 0 ? "OWNER" : "ADMIN";
+    // Atomic transaction for bootstrap / creation with Serializable isolation level and bounded retries
+    let admin = null;
+    const MAX_BOOTSTRAP_RETRIES = 3;
 
-        const newAdmin = await tx.adminUser.create({
-          data: {
-            email: email.trim(),
-            normalizedEmail: normalized,
-            passwordHash,
-            name: name.trim(),
-            role,
+    for (let attempt = 1; attempt <= MAX_BOOTSTRAP_RETRIES; attempt++) {
+      try {
+        admin = await prisma.$transaction(
+          async (tx) => {
+            const count = await tx.adminUser.count();
+            const role = count === 0 ? "OWNER" : "ADMIN";
+
+            const newAdmin = await tx.adminUser.create({
+              data: {
+                email: email.trim(),
+                normalizedEmail: normalized,
+                passwordHash,
+                name: name.trim(),
+                role,
+              },
+            });
+
+            await tx.auditLog.create({
+              data: {
+                adminUserId: newAdmin.id,
+                action: "ADMIN_BOOTSTRAP_CREATED",
+                entityType: "AdminUser",
+                entityId: newAdmin.id,
+              },
+            });
+
+            return newAdmin;
           },
-        });
-
-        await tx.auditLog.create({
-          data: {
-            adminUserId: newAdmin.id,
-            action: "ADMIN_BOOTSTRAP_CREATED",
-            entityType: "AdminUser",
-            entityId: newAdmin.id,
+          {
+            isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
           },
-        });
+        );
+        break;
+      } catch (retryErr: unknown) {
+        const isSerializationConflict =
+          retryErr instanceof Error &&
+          (retryErr.message.includes("P2034") ||
+            retryErr.message.includes("40001") ||
+            retryErr.message.includes("could not serialize access"));
 
-        return newAdmin;
-      },
-      {
-        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-      },
-    );
+        if (isSerializationConflict && attempt < MAX_BOOTSTRAP_RETRIES) {
+          await new Promise((res) => setTimeout(res, 50 * attempt));
+          continue;
+        }
+
+        console.error(
+          "\n❌ An error occurred while creating the admin account. Please try again.",
+        );
+        process.exit(1);
+      }
+    }
+
+    if (!admin) {
+      console.error(
+        "\n❌ An error occurred while creating the admin account. Please try again.",
+      );
+      process.exit(1);
+    }
 
     console.log(`\n✅ Admin account created successfully.`);
     console.log(`   Name: ${admin.name}`);
