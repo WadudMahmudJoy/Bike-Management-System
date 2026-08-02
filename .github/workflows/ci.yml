@@ -6,6 +6,7 @@ on:
       - main
       - develop
       - phase-1/*
+      - phase-2/*
   pull_request:
     branches:
       - main
@@ -18,6 +19,7 @@ env:
   NEXT_TELEMETRY_DISABLED: "1"
   DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/bike_management_test?schema=public"
   SHADOW_DATABASE_URL: "postgresql://postgres:postgres@localhost:5432/bike_management_test_shadow?schema=public"
+  AUTH_RATE_LIMIT_SECRET: "ci_synthetic_rate_limit_secret_for_testing_purposes_only_32bytes"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -39,7 +41,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "pg_isready -U postgres -d bike_management_test"
           --health-interval 5s
           --health-timeout 5s
           --health-retries 5
@@ -85,6 +87,15 @@ jobs:
 
       - name: Run Database Integrity Tests
         run: pnpm db:test-integrity
+
+      - name: Run Auth Unit Tests
+        run: pnpm test
+
+      - name: Run Admin Auth Integration Tests
+        run: pnpm test:admin-auth
+
+      - name: Run Admin CLI Smoke Test
+        run: pnpm test:admin-cli-smoke
 
       - name: Run ESLint
         run: pnpm lint

@@ -20,6 +20,8 @@ pnpm exec prisma migrate status
 pnpm exec prisma db seed
 pnpm exec prisma db seed
 pnpm db:test-integrity
+pnpm test
+pnpm test:admin-auth
 pnpm lint
 pnpm typecheck
 pnpm build
@@ -85,3 +87,20 @@ git diff --check
 - [x] **Idempotent Seed Script (`prisma/seed.ts`):** Populates singleton non-sensitive `ShopSetting` entries (`Sristy-Dristy Bike House` / `Sristy-Dristy Enterprise`). Running seed twice succeeds cleanly.
 - [x] **Committed Integrity Test Suite (`pnpm db:test-integrity`):** Executed 37-point runtime integrity test suite inside a rolled-back transaction.
 - [x] **CI Database Integration (`.github/workflows/ci.yml`):** Added PostgreSQL 18 service container, automated migration deploy, status check, schema drift check, double-pass seed check, and `pnpm db:test-integrity`.
+
+---
+
+## Phase 2 Verification — Secure Admin Authentication & Shell
+
+- [x] **Argon2id Hashing:** Password policy (12–128 chars, non-whitespace), hashing, and verification implemented using OWASP parameters (`memoryCost: 19456`, `timeCost: 2`, `parallelism: 1`).
+- [x] **Anti-Enumeration Timing Safety:** `verifyAgainstDummy` implemented to ensure CPU-time parity for non-existent accounts.
+- [x] **Session Token Security:** 32-byte cryptographically random base64url tokens. Database stores SHA-256 hex digest (`sessionTokenHash`).
+- [x] **Cookie Security Configuration:** `sdb_admin_session` in dev, `__Host-sdb_admin_session` in prod (`HttpOnly`, `SameSite=Lax`, `Path=/`, `Secure` in prod).
+- [x] **Login Rate Limiting & Throttling:** `AdminLoginThrottle` table created via migration `20260802042936_phase2_admin_auth_throttling` with custom CHECK constraints (`failureCount >= 0`, `keyHash ~ '^[a-f0-9]{64}$'`, `blockedUntil >= windowStartedAt`). HMAC-SHA256 keying preserves email/IP privacy. 5 failures block for 15 minutes.
+- [x] **Next.js Proxy & DAL Separation:** `src/proxy.ts` performs lightweight cookie-presence check without DB/Crypto dependencies. Real authorization runs in `requireAdmin()` with React `cache()` request deduplication.
+- [x] **Server Actions for Login & Logout:** Form validation, atomic audit logging, session creation/revocation, and non-disclosing error messages.
+- [x] **Interactive Bootstrap CLI (`pnpm admin:create`):** Interactive TTY script with masked password entry for bootstrapping administrative accounts.
+- [x] **Premium Dark UI Theme:** Admin shell (`admin-shell.tsx`), login page (`login/page.tsx`), and dashboard (`dashboard/page.tsx`) styled using Obsidian, Graphite, Warm Ivory, and Muted Champagne design tokens.
+- [x] **Unit Test Suite (`pnpm test`):** 16 unit tests covering password policy, hashing, email normalization, tokens, cookies, and role authorization.
+- [x] **Admin Auth Integration Suite (`pnpm test:admin-auth`):** 12 integration tests verifying session lifecycle, expiration, revocation, throttling, and idempotent logout with automatic synthetic test data cleanup.
+- [x] **CI Pipeline Integration:** Updated `.github/workflows/ci.yml` with synthetic `AUTH_RATE_LIMIT_SECRET`, `pnpm test`, and `pnpm test:admin-auth`.
