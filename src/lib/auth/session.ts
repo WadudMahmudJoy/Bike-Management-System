@@ -111,9 +111,10 @@ export async function verifyAdminSessionToken(
 }
 
 /**
- * Revoke a session record in the database by raw token.
- * Returns structured RevokeSessionResult.
- * Does NOT swallow real database failures.
+ * Perform atomic revocation of an AdminSession database record by raw token.
+ * Uses conditional updateMany ({ id: session.id, revokedAt: null }) to ensure
+ * concurrency safety: exactly one caller receives newlyRevoked: true.
+ * Returns structured RevokeSessionResult with generic error messages.
  */
 export async function revokeAdminSessionToken(
   rawToken: string,
@@ -155,29 +156,68 @@ export async function revokeAdminSessionToken(
       };
     }
 
-    await client.adminSession.update({
-      where: { id: session.id },
-      data: { revokedAt: new Date() },
+    // Atomic conditional update guaranteeing single winner under high concurrency
+    const updateResult = await client.adminSession.updateMany({
+      where: {
+        id: session.id,
+        revokedAt: null,
+      },
+      data: {
+        revokedAt: new Date(),
+      },
     });
+
+    const newlyRevoked = updateResult.count === 1;
 
     return {
       success: true,
       sessionId: session.id,
       adminUserId: session.adminUserId,
-      newlyRevoked: true,
+      newlyRevoked,
     };
-  } catch (err) {
+  } catch {
     return {
       success: false,
       sessionId: null,
       adminUserId: null,
       newlyRevoked: false,
-      error:
-        err instanceof Error
-          ? err.message
-          : "Database error during session revocation",
+      error: "Database error during session revocation",
     };
   }
+}
+
+/**
+ * Core production function to revoke a session token and write an audit log entry.
+ * Can be exercised directly in unit/integration tests without request cookie context.
+ */
+export async function logoutAdminSession(
+  rawToken: string,
+  txPrisma?: Prisma.TransactionClient,
+): Promise<RevokeSessionResult> {
+  const result = await revokeAdminSessionToken(rawToken, txPrisma);
+
+  if (
+    result.success &&
+    result.newlyRevoked &&
+    result.adminUserId &&
+    result.sessionId
+  ) {
+    const client = txPrisma ?? prisma;
+    try {
+      await client.auditLog.create({
+        data: {
+          adminUserId: result.adminUserId,
+          action: "ADMIN_LOGOUT",
+          entityType: "AdminSession",
+          entityId: result.sessionId,
+        },
+      });
+    } catch {
+      // Audit log creation error does not undo session revocation
+    }
+  }
+
+  return result;
 }
 
 /**
@@ -256,26 +296,24 @@ export async function revokeCurrentSession(): Promise<RevokeSessionResult> {
 }
 
 /**
- * Complete logout: revoke session, write audit log for newly revoked session, delete cookie.
- * Does NOT report success if database revocation fails.
+ * Complete request-cookie logout wrapper: revokes session, writes audit log, and deletes session cookie.
+ * Does NOT report success or delete cookie if database revocation fails.
  */
 export async function logoutAdmin(): Promise<RevokeSessionResult> {
-  const result = await revokeCurrentSession();
-
-  if (result.success && result.newlyRevoked && result.adminUserId && result.sessionId) {
-    try {
-      await prisma.auditLog.create({
-        data: {
-          adminUserId: result.adminUserId,
-          action: "ADMIN_LOGOUT",
-          entityType: "AdminSession",
-          entityId: result.sessionId,
-        },
-      });
-    } catch {
-      // Audit log failures during logout do not undo revocation
-    }
+  const rawToken = await getSessionTokenFromCookie();
+  if (!rawToken) {
+    await deleteAdminSessionCookie();
+    return {
+      success: true,
+      sessionId: null,
+      adminUserId: null,
+      newlyRevoked: false,
+    };
   }
 
+  const result = await logoutAdminSession(rawToken);
+  if (result.success) {
+    await deleteAdminSessionCookie();
+  }
   return result;
 }

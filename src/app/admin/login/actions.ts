@@ -11,6 +11,7 @@ import {
 import { authenticateAdminCredentials } from "@/lib/auth/auth-service";
 import { logoutAdmin, revokeAdminSessionToken } from "@/lib/auth/session";
 import type { LoginResult } from "@/lib/auth/types";
+import type { RevokeSessionResult } from "@/lib/auth/session";
 
 const loginSchema = z.object({
   email: z.string().transform((val) => val.trim()),
@@ -87,15 +88,32 @@ export async function loginAction(
   redirect("/admin/dashboard");
 }
 
+export type LogoutResult = {
+  success?: boolean;
+  error?: string;
+};
+
 /**
  * Server Action for admin logout.
- * Revokes session, clears cookie, writes audit log, redirects to login.
+ * Calls logoutAdmin(), revokes database session, deletes cookie, and redirects upon success.
+ * If database revocation fails, returns error state without deleting cookie or redirecting.
  */
-export async function logoutAction(): Promise<void> {
+export async function logoutAction(): Promise<LogoutResult> {
+  let result: RevokeSessionResult;
   try {
-    await logoutAdmin();
+    result = await logoutAdmin();
   } catch {
-    // Logout must not fail visibly
+    return {
+      success: false,
+      error: "Unable to sign out securely. Please try again.",
+    };
+  }
+
+  if (!result.success) {
+    return {
+      success: false,
+      error: "Unable to sign out securely. Please try again.",
+    };
   }
 
   redirect("/admin/login");

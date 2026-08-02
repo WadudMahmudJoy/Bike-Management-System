@@ -27,7 +27,29 @@ const NAV_ITEMS = [
 
 export function AdminShell({ admin, children }: AdminShellProps) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [logoutError, setLogoutError] = useState<string | null>(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
   const pathname = usePathname();
+
+  const handleLogout = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLogoutError(null);
+    setIsLoggingOut(true);
+
+    try {
+      const res = await logoutAction();
+      if (res && !res.success && res.error) {
+        setLogoutError(res.error);
+        setIsLoggingOut(false);
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && (err.message.includes("NEXT_REDIRECT") || err.message.includes("digest"))) {
+        throw err;
+      }
+      setLogoutError("Unable to sign out securely. Please try again.");
+      setIsLoggingOut(false);
+    }
+  };
 
   return (
     <div className="flex h-screen bg-[#0A0A0A] text-[#F5F0E8]">
@@ -138,15 +160,21 @@ export function AdminShell({ admin, children }: AdminShellProps) {
           <div className="hidden lg:block" />
 
           <div className="flex items-center gap-4">
+            {logoutError && (
+              <span className="text-xs font-medium text-red-400 bg-red-950/50 border border-red-800/60 rounded px-2.5 py-1">
+                {logoutError}
+              </span>
+            )}
             <span className="hidden text-sm text-[#E8E0D4]/80 sm:block">
               {admin.name} <span className="text-[#C8B88A] text-xs font-mono ml-1">({admin.role})</span>
             </span>
-            <form action={logoutAction}>
+            <form onSubmit={handleLogout}>
               <button
                 type="submit"
-                className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2 text-sm font-medium text-[#E8E0D4]/80 transition-colors hover:bg-[#2A2A2A] hover:text-[#F5F0E8] focus:outline-none focus:ring-1 focus:ring-[#C8B88A]/40 min-h-[44px]"
+                disabled={isLoggingOut}
+                className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2 text-sm font-medium text-[#E8E0D4]/80 transition-colors hover:bg-[#2A2A2A] hover:text-[#F5F0E8] focus:outline-none focus:ring-1 focus:ring-[#C8B88A]/40 min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Sign out
+                {isLoggingOut ? "Signing out..." : "Sign out"}
               </button>
             </form>
           </div>
