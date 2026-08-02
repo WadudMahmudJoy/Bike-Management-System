@@ -48,7 +48,7 @@
     "prisma": "^7.9.1",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.1",
-    "typescript": "^5.9.3",
+    "typescript": "^6.0.3",
     "vitest": "^3.0.0"
   },
   "packageManager": "pnpm@11.1.2"
