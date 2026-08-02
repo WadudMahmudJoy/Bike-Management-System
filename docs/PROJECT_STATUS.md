@@ -2,11 +2,11 @@
 
 ## Current Phase
 
-**Phase 2, Phase 2.1, Phase 2.2, & Phase 2.3 — Secure Admin Authentication, Database Sessions, Atomic Login Throttling & Rollover, Atomic Logout & Revocation, Authorization DAL, Next.js Proxy Protection, Admin Login, Premium Admin Shell, Tests, CI, Documentation, and Pull Request**
+**Phase 2 — Secure Admin Authentication, Database Sessions, Atomic Login Throttling & Rollover, Atomic Logout & Revocation, Authorization DAL, Next.js Proxy Protection, Admin Login, Premium Admin Shell, Tests, CI, Documentation, and Pull Request (Merged into `main`)**
 
 ## Status
 
-**Implemented on Feature Branch (`phase-2/admin-authentication`), PR #7 Updated & CI Green (Pending Review)** — All Phase 2, 2.1, 2.2, & 2.3 security primitives, Argon2id credential verification, SHA-256 session token hashing, HTTP-only secure cookie handling using exact session `expiresAt` with remaining-lifetime `maxAge`, atomic UPSERT login throttling with stale `blockedUntil` rollover clearing, pure proxy trust resolver (`AUTH_TRUST_PROXY`), database migration `20260802042936_phase2_admin_auth_throttling`, server-only authentication service (`authenticateAdminCredentials`), atomic login transaction, atomic session revocation using conditional `updateMany`, focused logout production service (`logoutAdminSession`), UI error feedback for failed logout, request-scoped DAL authorization, optimistic proxy edge routing (`src/proxy.ts`), interactive owner bootstrap CLI (`pnpm admin:create`) with 3-attempt serializable retry, non-interactive TTY CLI smoke test (`pnpm test:admin-cli-smoke`), premium dark admin shell layout, 27 unit tests, 23 database integration tests (including real multi-connection concurrency, window rollover, and atomic concurrent logout tests), strict process exit code cleanup verification, and clean CI Postgres service health check (`pg_isready -U postgres -d bike_management_test`) have been implemented, executed, and verified.
+**Merged into `main` via PR #7 (Merge Commit: `ccf91b36a9365f07a387e2466420c7cf2b8c1835`, Main CI Run #30761606954 Passed)** — All Phase 2, 2.1, 2.2, & 2.3 security primitives, Argon2id credential verification, SHA-256 session token hashing, HTTP-only secure cookie handling using exact session `expiresAt` with remaining-lifetime `maxAge`, atomic UPSERT login throttling with stale `blockedUntil` rollover clearing, pure proxy trust resolver (`AUTH_TRUST_PROXY`), database migration `20260802042936_phase2_admin_auth_throttling`, server-only authentication service (`authenticateAdminCredentials`), atomic login transaction, atomic session revocation using conditional `updateMany`, focused logout production service (`logoutAdminSession`), UI error feedback for failed logout, request-scoped DAL authorization, optimistic proxy edge routing (`src/proxy.ts`), interactive owner bootstrap CLI (`pnpm admin:create`) with 3-attempt serializable retry, non-interactive TTY CLI smoke test (`pnpm test:admin-cli-smoke`), premium dark admin shell layout, 27 unit tests, 23 database integration tests (including real multi-connection concurrency, window rollover, and atomic concurrent logout tests), strict process exit code cleanup verification, and clean CI Postgres service health check (`pg_isready -U postgres -d bike_management_test`) have been implemented, verified, merged into `main`, and fully validated by main-branch CI.
 
 ---
 
@@ -83,9 +83,11 @@
 
 ## Current Branch & Git State
 
-- **Branch:** `phase-2/admin-authentication`
-- **Working Tree:** Clean (`nothing to commit, working tree clean`)
-- **Pull Request:** [PR #7 — Phase 2: add secure admin authentication and shell](https://github.com/WadudMahmudJoy/Bike-Management-System/pull/7) (Open, Pending Review)
+- **Branch:** `main`
+- **Working Tree:** Expected to be clean (`nothing to commit, working tree clean`)
+- **Pull Request:** [PR #7 — Phase 2: add secure admin authentication and shell](https://github.com/WadudMahmudJoy/Bike-Management-System/pull/7) (Merged into `main` via `ccf91b36a9365f07a387e2466420c7cf2b8c1835`)
+- **Feature Branch:** `phase-2/admin-authentication` (Deleted after merge)
+- **Account State:** No real owner or administrator account has been created yet. The first owner account can be created manually using `pnpm admin:create`.
 
 ---
 
@@ -97,8 +99,8 @@
 
 ---
 
-## Next Approved Phase
+## Next Planned Phase
 
 **Phase 3 — Customer Management**
 
-> **Explicit Boundary:** Phase 3 must NOT begin until PR #7 for Phase 2 is reviewed and explicit user approval is granted.
+> **Explicit Boundary:** Phase 3 must NOT begin until explicit user approval is granted.

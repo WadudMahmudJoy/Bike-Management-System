@@ -47,11 +47,12 @@ Before writing code or editing files, read these documents in full:
 
 ## Locked Decisions & Core Constraints
 
+- **Future Agents Continue From `main`:** PR #7 has been merged into `main` via merge commit `ccf91b36a9365f07a387e2466420c7cf2b8c1835`. The temporary feature branch `phase-2/admin-authentication` was deleted. Do not refer to it as an active branch.
 - **Do Not Rewrite Applied Migrations:** The migrations in `prisma/migrations/` are applied and tracked in Git. Do not rewrite, modify, or delete applied migrations. Future schema modifications must be executed via new migrations (`prisma migrate dev --name <name>`).
 - **No Unimplemented Assumptions:** Do not assume customer CRUD, bike CRUD, or payment processing logic exist. Inspect the codebase first.
 - **Strict Proxy & DAL Separation:** `src/proxy.ts` performs optimistic cookie checks only and MUST NOT import Prisma or Argon2. Real authorization MUST execute in Server Components and Server Actions via `requireAdmin()`.
 - **Untrusted Forwarding Headers:** `getClientAddress()` untrusts forwarding headers by default (`AUTH_TRUST_PROXY="false"`). Trusted proxy mode requires explicit environment enablement (`AUTH_TRUST_PROXY="true"`).
-- **No Real Credentials:** Never create or commit a real owner or administrator account. Use synthetic test data in automated integration scripts.
+- **No Default Credentials & Manual First-Owner Creation:** No default admin credentials exist in code, seeds, or fixtures. The first owner account creation is an explicit manual operational step using `pnpm admin:create`.
 - **Financial Integrity:** Dynamic server-side calculation only. Append-only ledger logic enforced by database triggers. No floating-point arithmetic for money.
 
 ---
@@ -80,9 +81,9 @@ git diff --check
 
 ---
 
-## Next Approved Task: Phase 3 — Customer Management
+## Next Planned Task: Phase 3 — Customer Management
 
-When starting Phase 3 (after explicit user approval and Phase 2 PR review):
+Phase 3 Customer Management is the next planned phase on the roadmap, but work must NOT begin until explicit user approval is provided:
 1. Build Customer CRUD interfaces (create, view, edit, list, filter).
 2. Implement Bangladesh phone number normalization (`+880` prefix format) and duplicate warnings.
 3. Implement NID lifecycle (`PENDING` -> `SUBMITTED` -> `VERIFIED`).
@@ -93,4 +94,4 @@ When starting Phase 3 (after explicit user approval and Phase 2 PR review):
 
 ---
 
-**Phases 2, 2.1, 2.2, & 2.3 are complete on feature branch `phase-2/admin-authentication`. PR #7 is updated and pending review. Do not merge the PR. Do not begin Phase 3 until the user reviews the PR and gives explicit permission.**
+**Phase 2 is fully merged into `main`. Do not begin Phase 3 until the user gives explicit approval.**

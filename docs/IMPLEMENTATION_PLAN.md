@@ -31,7 +31,7 @@ This document details the 14-phase roadmap for the **Bike Management System** (S
 - Built idempotent `prisma/seed.ts` foundation and 37-point runtime database integrity test suite (`pnpm db:test-integrity`).
 
 ### Phase 2 — Secure Admin Authentication and Admin Shell
-**Status: Complete on Feature Branch (`phase-2/admin-authentication`)**
+**Status: Complete (Merged into `main`)**
 - Built Argon2id credential hashing (`hashPassword`, `verifyPassword`, `verifyAgainstDummy`) with OWASP parameters.
 - Implemented SHA-256 session token digests (`AdminSession.sessionTokenHash`) and 12-hour HttpOnly secure cookies.
 - Implemented privacy-preserving login rate limiting (`AdminLoginThrottle`) using HMAC-SHA256 digests. Applied migration `20260802042936_phase2_admin_auth_throttling` with custom CHECK constraints.
@@ -39,7 +39,7 @@ This document details the 14-phase roadmap for the **Bike Management System** (S
 - Created login Server Actions (`src/app/admin/login/actions.ts`) with atomic audit logging and generic error responses.
 - Built interactive owner bootstrap CLI (`pnpm admin:create`).
 - Designed premium dark admin shell layout (`admin-shell.tsx`) using Obsidian, Graphite, Warm Ivory, and Muted Champagne design tokens.
-- Created 16 Vitest unit tests (`pnpm test`) and 12 database integration tests (`pnpm test:admin-auth`).
+- Created 27 Vitest unit tests (`pnpm test`), 23 database integration tests (`pnpm test:admin-auth`), and 4 CLI smoke tests (`pnpm test:admin-cli-smoke`).
 
 ---
 

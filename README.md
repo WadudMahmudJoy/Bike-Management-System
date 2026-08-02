@@ -28,7 +28,7 @@ A production-grade pre-owned motorcycle dealership management system and public 
 - **Phase 0.5.1 (Dependency Security Gate & SEO Metadata Correction):** Complete
 - **Phase 0.5.2 (GitHub Actions Runtime Correction):** Complete
 - **Phase 1 & Phase 1.1 (PostgreSQL Environment & Schema Corrections):** Merged into `main`
-- **Phase 2 (Admin Authentication, Sessions, Throttle & Admin Shell):** Complete on feature branch `phase-2/admin-authentication` (PR pending review)
+- **Phase 2 (Admin Authentication, Sessions, Throttle & Admin Shell):** Merged into `main` (PR #7 merged)
 
 ---
 
