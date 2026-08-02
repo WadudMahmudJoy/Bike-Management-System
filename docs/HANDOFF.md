@@ -35,12 +35,13 @@ Before writing code or editing files, read these documents in full:
   - `20260801174101_init_dealership_schema`
   - `20260802000215_phase1_integrity_corrections`
   - `20260802042936_phase2_admin_auth_throttling` (custom CHECK constraints for throttle failure count, keyHash hex format, and blockedUntil relation).
-- **Authentication Stack:** Argon2id credential hashing (`argon2`), SHA-256 session token digests (`AdminSession`), `HttpOnly` secure session cookies, HMAC-SHA256 login rate limiting, Server Actions (`src/app/admin/login/actions.ts`), request-scoped React `cache()` DAL (`src/lib/auth/dal.ts`), edge proxy protection (`src/proxy.ts`), interactive bootstrap CLI (`scripts/create-admin.ts`), and premium dark admin shell (`src/app/admin/(protected)/admin-shell.tsx`).
+- **Authentication Stack:** Argon2id credential hashing (`argon2`), SHA-256 session token digests (`AdminSession`), `HttpOnly` secure session cookies, atomic UPSERT login rate limiting, server-only authentication service (`authenticateAdminCredentials`), Server Actions (`src/app/admin/login/actions.ts`), request-scoped React `cache()` DAL (`src/lib/auth/dal.ts`), edge proxy protection (`src/proxy.ts`), interactive owner bootstrap CLI (`scripts/create-admin.ts`), and premium dark admin shell (`src/app/admin/(protected)/admin-shell.tsx`).
 - **Test Suites:**
   - 37-point runtime database integrity test suite (`pnpm db:test-integrity`).
-  - 16-point Vitest auth unit test suite (`pnpm test`).
-  - 12-point admin auth database integration test suite (`pnpm test:admin-auth`).
-- **CI Pipeline:** `.github/workflows/ci.yml` includes PostgreSQL 18 service container, `prisma validate`, `prisma generate`, `prisma migrate deploy`, `prisma migrate status`, `prisma migrate diff`, double-pass `prisma db seed`, `pnpm db:test-integrity`, `pnpm test`, `pnpm test:admin-auth`, lint, typecheck, build, and blocking audit gate.
+  - 20-point Vitest auth unit test suite (`pnpm test`).
+  - 17-point admin auth database integration test suite (`pnpm test:admin-auth`).
+  - 4-point owner CLI non-interactive smoke test (`pnpm test:admin-cli-smoke`).
+- **CI Pipeline:** `.github/workflows/ci.yml` includes PostgreSQL 18 service container, `prisma validate`, `prisma generate`, `prisma migrate deploy`, `prisma migrate status`, `prisma migrate diff`, double-pass `prisma db seed`, `pnpm db:test-integrity`, `pnpm test`, `pnpm test:admin-auth`, `pnpm test:admin-cli-smoke`, lint, typecheck, build, and blocking audit gate.
 
 ---
 
@@ -49,6 +50,7 @@ Before writing code or editing files, read these documents in full:
 - **Do Not Rewrite Applied Migrations:** The migrations in `prisma/migrations/` are applied and tracked in Git. Do not rewrite, modify, or delete applied migrations. Future schema modifications must be executed via new migrations (`prisma migrate dev --name <name>`).
 - **No Unimplemented Assumptions:** Do not assume customer CRUD, bike CRUD, or payment processing logic exist. Inspect the codebase first.
 - **Strict Proxy & DAL Separation:** `src/proxy.ts` performs optimistic cookie checks only and MUST NOT import Prisma or Argon2. Real authorization MUST execute in Server Components and Server Actions via `requireAdmin()`.
+- **Untrusted Forwarding Headers:** `getClientAddress()` untrusts forwarding headers by default (`AUTH_TRUST_PROXY="false"`). Trusted proxy mode requires explicit environment enablement (`AUTH_TRUST_PROXY="true"`).
 - **No Real Credentials:** Never create or commit a real owner or administrator account. Use synthetic test data in automated integration scripts.
 - **Financial Integrity:** Dynamic server-side calculation only. Append-only ledger logic enforced by database triggers. No floating-point arithmetic for money.
 
@@ -72,6 +74,7 @@ pnpm exec prisma db seed
 pnpm db:test-integrity
 pnpm test
 pnpm test:admin-auth
+pnpm test:admin-cli-smoke
 pnpm lint
 pnpm typecheck
 pnpm build
@@ -95,4 +98,4 @@ When starting Phase 3 (after explicit user approval and Phase 2 PR review):
 
 ---
 
-**Phase 2 is complete on feature branch `phase-2/admin-authentication`. Do not merge the PR. Do not begin Phase 3 until the user reviews the PR and gives explicit permission.**
+**Phase 2 & Phase 2.1 are complete on feature branch `phase-2/admin-authentication`. PR #7 is updated and pending review. Do not merge the PR. Do not begin Phase 3 until the user reviews the PR and gives explicit permission.**

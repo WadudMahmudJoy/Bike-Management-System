@@ -43,47 +43,69 @@ When an unknown email or inactive account is queried during login, authenticatio
 ## 4. Opaque Session Tokens & Hashing
 
 - **Raw Token Generation:** Cryptographically secure 32-byte random buffer, base64url-encoded (`src/lib/auth/token.ts`).
-- **Token Delivery:** Delivered exclusively via HTTP cookies. Raw tokens are never logged or stored in the database.
+- **Token Delivery:** Delivered exclusively via HTTP cookies set by Server Actions. Raw tokens are never returned to Client Components, never logged, and never stored in the database.
 - **Database Storage:** The `AdminSession` table stores only the SHA-256 hex digest (`sessionTokenHash`).
 - **Session Expiry:** Absolute lifetime of 12 hours (`SESSION_LIFETIME_MS = 43200000`).
 
 ---
 
-## 5. Cookie Policy
+## 5. Cookie Policy & Testability
 
 - **Development Cookie Name:** `sdb_admin_session`
 - **Production Cookie Name:** `__Host-sdb_admin_session` (enforces strict origin binding)
-- **Attributes:**
-  - `HttpOnly: true` (prevents JavaScript access)
-  - `SameSite: "lax"` (mitigates CSRF while enabling normal navigation)
-  - `Path: "/"`
-  - `Secure: true` in production (`Secure: false` allowed only for local HTTP development)
-  - `Domain`: Intentionally omitted to comply with `__Host-` prefix requirements.
+- **Standardized Cookie Options (`getAdminSessionCookieOptions`):**
+  - `httpOnly: true` (prevents JavaScript access)
+  - `sameSite: "lax"` (mitigates CSRF while enabling normal navigation)
+  - `path: "/"`
+  - `secure: true` in production (`secure: false` allowed only for local HTTP development)
+  - `domain`: Intentionally omitted to comply with `__Host-` prefix requirements.
 
 ---
 
-## 6. Login Rate Limiting & Throttling
+## 6. Client Address Resolution & Proxy Trust
+
+- **Default Untrusted Mode:** Forwarding headers (`x-forwarded-for`, `x-real-ip`, etc.) are untrusted by default. When `AUTH_TRUST_PROXY` is false or unset, `getClientAddress()` returns the stable fallback identifier `unknown-client`.
+- **Trusted Proxy Configuration:** Enabled only when `AUTH_TRUST_PROXY="true"` is explicitly set in environment variables and `AUTH_TRUSTED_IP_HEADER` names an explicitly allowlisted header (e.g. `x-real-ip`).
+- **IP Validation:** Extracted header values are validated using Node's `net.isIP()`. Comma-separated multi-IP lists and malformed inputs are rejected and fall back to `unknown-client`.
+- **Privacy Guarantee:** Raw IP addresses are never logged or exposed in public error responses.
+
+---
+
+## 7. Atomic Concurrency-Safe Login Throttling
 
 - **Mechanism:** Keyed HMAC-SHA256 (`createHmac("sha256", AUTH_RATE_LIMIT_SECRET)`).
 - **Key Input:** `normalizedEmail:clientAddress` hex digest stored in `AdminLoginThrottle.keyHash`.
 - **Privacy:** Neither raw email nor IP address is stored in the database.
+- **Atomic UPSERT Query:** `recordFailedAttempt()` uses an atomic PostgreSQL `INSERT ... ON CONFLICT ("keyHash") DO UPDATE ...` query. This guarantees zero lost increments under high concurrency and eliminates transaction serialization aborts.
 - **Policy:**
   - Max Failures: 5 failed attempts (`MAX_LOGIN_ATTEMPTS = 5`).
   - Window Duration: 15 minutes (`THROTTLE_WINDOW_MS = 900000`).
   - Block Duration: 15 minutes (`BLOCK_DURATION_MS = 900000`).
-- **Clearing:** Successful login clears the throttle entry for the key.
+- **Clearing:** Successful login clears the matching throttle entry inside the atomic login transaction.
 - **Public Error Responses:** Generic and non-disclosing:
   - Invalid credentials: `"Invalid email or password."`
   - Throttled attempt: `"Too many sign-in attempts. Please try again later."`
 
 ---
 
-## 7. Next.js Proxy & Authorization DAL Separation
+## 8. Server-Side Authentication Service & Atomic Login Transaction
+
+- **Authentication Service (`authenticateAdminCredentials`):** Server-only service encapsulating email validation, throttle verification, constant-work dummy password verification, Argon2id verification, failed attempt recording, and atomic success handling.
+- **Atomic Database Transaction:** On credential success, `prisma.$transaction` performs all database writes in one atomic unit:
+  1. Updates `AdminUser.lastLoginAt`
+  2. Creates `AdminSession` record storing SHA-256 token hash
+  3. Creates `ADMIN_LOGIN_SUCCESS` AuditLog with `entityType: "AdminSession"` and `entityId: session.id`
+  4. Deletes the exact matching `AdminLoginThrottle` record
+- **Cookie Security:** The Server Action sets the HttpOnly cookie using the returned `rawToken` after the database transaction succeeds. If cookie delivery fails, the newly created session is revoked.
+
+---
+
+## 9. Next.js Proxy & Authorization DAL Separation
 
 ### Next.js Proxy (`src/proxy.ts`)
-- Performs **optimistic cookie-presence routing** only.
-- Excludes `/admin/login` and non-page static/API paths.
-- Redirects unauthenticated requests lacking a session cookie to `/admin/login`.
+- Exports precise `config.matcher = ["/admin", "/admin/:path*"]`.
+- Explicitly excludes `/admin/login` from redirection logic.
+- Inspects only the environment-appropriate session cookie name (`__Host-sdb_admin_session` in production, `sdb_admin_session` in dev).
 - **Security Rule:** Proxy does NOT import Prisma, database drivers, or Argon2 native modules, and does NOT treat cookie presence as verified authentication.
 
 ### Data Access Layer (DAL & Server Authorization)
@@ -94,17 +116,26 @@ When an unknown email or inactive account is queried during login, authenticatio
 
 ---
 
-## 8. Owner Bootstrap CLI (`pnpm admin:create`)
+## 10. Owner Bootstrap CLI (`pnpm admin:create`)
 
 - Executable via `pnpm admin:create` (`scripts/create-admin.ts`).
-- **Interactive TTY Enforcement:** Fails immediately if executed non-interactively or piped.
+- Preloads `scripts/register-server-only-mock.cjs` to resolve `server-only` imports during CLI execution.
+- Verified by a dedicated non-interactive TTY smoke test (`pnpm test:admin-cli-smoke`).
+- **Interactive TTY Enforcement:** Fails immediately with exit code 1 if executed non-interactively or piped.
 - **Password Input:** Uses raw terminal mode to mask password entry with asterisks (`*`).
-- **First Account Rule:** Automatically assigns the `OWNER` role to the first created account (`AdminUser.count() === 0`). Subsequent accounts default to `ADMIN`.
-- **Audit Logging:** Writes an `ADMIN_BOOTSTRAP_CREATED` entry to `AuditLog`.
+- **Atomic Bootstrap Transaction:** Uses a `Serializable` transaction to atomically check existing account count, assign `OWNER` role to the first account (`AdminUser.count() === 0`), create the `AdminUser`, and write an `ADMIN_BOOTSTRAP_CREATED` AuditLog.
 
 ---
 
-## 9. Deferred Features
+## 11. Testing & Non-Destructive Teardown
+
+- **Unit Test Suite (`pnpm test`):** 20 unit tests verifying email normalization, Argon2id hashing, dummy verification, token entropy, SHA-256 digests, client address proxy trust, cookie options, and role authorization.
+- **Integration Test Suite (`pnpm test:admin-auth`):** 17 integration tests calling production session functions (`createAdminSessionRecord`, `verifyAdminSessionToken`, `revokeAdminSessionToken`), production auth service (`authenticateAdminCredentials`), concurrent throttling, audit trail references, and non-destructive cleanup.
+- **Non-Destructive Teardown:** Synthetic test rows are generated and validated inside an isolated ROLLBACK transaction. Pre-existing throttle rows are verified to survive test suite execution without deletion.
+
+---
+
+## 12. Deferred Features
 
 The following features are explicitly deferred to future phases:
 - Two-Factor Authentication (2FA) / WebAuthn
@@ -113,4 +144,3 @@ The following features are explicitly deferred to future phases:
 - OAuth / Social Logins
 - Session Management & Remote Revocation UI
 - Distributed Rate Limiting (Redis / Upstash)
-- Production Trusted Reverse-Proxy Header Configuration
