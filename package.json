@@ -19,7 +19,8 @@
     "db:seed": "prisma db seed",
     "test": "vitest run",
     "test:admin-auth": "tsx -r ./scripts/register-server-only-mock.cjs scripts/test-admin-auth.ts",
-    "admin:create": "tsx scripts/create-admin.ts",
+    "test:admin-cli-smoke": "tsx scripts/test-admin-cli-smoke.ts",
+    "admin:create": "tsx -r ./scripts/register-server-only-mock.cjs scripts/create-admin.ts",
     "db:test-integrity": "tsx scripts/test-database-integrity.ts",
     "db:studio": "prisma studio"
   },

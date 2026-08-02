@@ -2,7 +2,7 @@ import "dotenv/config";
 import { createInterface } from "readline";
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../src/generated/prisma/client";
+import { PrismaClient, Prisma } from "../src/generated/prisma/client";
 import { hashPassword, validatePasswordPolicy } from "../src/lib/auth/password";
 import { validateAndNormalizeEmail } from "../src/lib/auth/email";
 
@@ -82,7 +82,9 @@ async function askPassword(prompt: string): Promise<string> {
 async function main() {
   // Require interactive TTY
   if (!process.stdin.isTTY) {
-    console.error("ERROR: This script requires an interactive terminal (TTY).");
+    console.error(
+      "ERROR: This script requires an interactive terminal (TTY).",
+    );
     console.error("       Do not pipe input or run non-interactively.");
     process.exit(1);
   }
@@ -93,8 +95,8 @@ async function main() {
 
   try {
     // Check if any admin exists
-    const existingCount = await prisma.adminUser.count();
-    const isFirstAdmin = existingCount === 0;
+    const initialCount = await prisma.adminUser.count();
+    const isFirstAdmin = initialCount === 0;
 
     if (isFirstAdmin) {
       console.log(
@@ -147,27 +149,37 @@ async function main() {
     console.log("\n⏳ Hashing password...");
     const passwordHash = await hashPassword(password);
 
-    // Create admin with OWNER role for first account
-    const role = isFirstAdmin ? "OWNER" : "ADMIN";
-    const admin = await prisma.adminUser.create({
-      data: {
-        email: email.trim(),
-        normalizedEmail: normalized,
-        passwordHash,
-        name: name.trim(),
-        role,
-      },
-    });
+    // Atomic transaction for bootstrap / creation with Serializable isolation level
+    const admin = await prisma.$transaction(
+      async (tx) => {
+        const count = await tx.adminUser.count();
+        const role = count === 0 ? "OWNER" : "ADMIN";
 
-    // Write safe bootstrap audit log entry
-    await prisma.auditLog.create({
-      data: {
-        adminUserId: admin.id,
-        action: "ADMIN_BOOTSTRAP_CREATED",
-        entityType: "AdminUser",
-        entityId: admin.id,
+        const newAdmin = await tx.adminUser.create({
+          data: {
+            email: email.trim(),
+            normalizedEmail: normalized,
+            passwordHash,
+            name: name.trim(),
+            role,
+          },
+        });
+
+        await tx.auditLog.create({
+          data: {
+            adminUserId: newAdmin.id,
+            action: "ADMIN_BOOTSTRAP_CREATED",
+            entityType: "AdminUser",
+            entityId: newAdmin.id,
+          },
+        });
+
+        return newAdmin;
       },
-    });
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
+    );
 
     console.log(`\n✅ Admin account created successfully.`);
     console.log(`   Name: ${admin.name}`);

@@ -94,6 +94,9 @@ jobs:
       - name: Run Admin Auth Integration Tests
         run: pnpm test:admin-auth
 
+      - name: Run Admin CLI Smoke Test
+        run: pnpm test:admin-cli-smoke
+
       - name: Run ESLint
         run: pnpm lint
 
