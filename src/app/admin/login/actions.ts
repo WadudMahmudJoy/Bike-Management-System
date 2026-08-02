@@ -3,19 +3,17 @@
 import { z } from "zod";
 import { redirect } from "next/navigation";
 import { headers, cookies } from "next/headers";
-import { emailSchema } from "@/lib/auth/email";
 import { getClientAddress } from "@/lib/auth/client-address";
 import {
   getSessionCookieName,
   getAdminSessionCookieOptions,
-  SESSION_LIFETIME_MS,
 } from "@/lib/auth/constants";
 import { authenticateAdminCredentials } from "@/lib/auth/auth-service";
 import { logoutAdmin, revokeAdminSessionToken } from "@/lib/auth/session";
 import type { LoginResult } from "@/lib/auth/types";
 
 const loginSchema = z.object({
-  email: emailSchema,
+  email: z.string().transform((val) => val.trim()),
   password: z.string().min(1, "Password is required."),
 });
 
@@ -24,7 +22,7 @@ const GENERIC_ERROR = "Invalid email or password.";
 /**
  * Server Action for admin login.
  * Delegates credential authentication to server-only auth service,
- * sets HttpOnly session cookie, and redirects to dashboard.
+ * sets HttpOnly session cookie using exact session expiresAt, and redirects to dashboard.
  */
 export async function loginAction(
   _prevState: LoginResult,
@@ -53,14 +51,17 @@ export async function loginAction(
       userAgent,
     });
 
-    if (!authResult.success || !authResult.rawToken) {
+    if (
+      !authResult.success ||
+      !authResult.rawToken ||
+      !authResult.expiresAt
+    ) {
       return { success: false, error: authResult.error ?? GENERIC_ERROR };
     }
 
-    // Set HttpOnly session cookie
-    const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
+    // Set HttpOnly session cookie using exact database session expiresAt
     const cookieName = getSessionCookieName();
-    const cookieOptions = getAdminSessionCookieOptions(expiresAt);
+    const cookieOptions = getAdminSessionCookieOptions(authResult.expiresAt);
 
     try {
       const cookieStore = await cookies();

@@ -77,8 +77,8 @@ export async function checkThrottle(
 
 /**
  * Record a failed login attempt using an atomic PostgreSQL UPSERT statement.
- * Completely eliminates read-then-write race conditions and transaction aborts
- * under concurrent failed login attempts.
+ * Completely eliminates read-then-write race conditions, transaction aborts,
+ * and constraint violations during window rollover.
  */
 export async function recordFailedAttempt(
   normalizedEmail: string,
@@ -121,12 +121,14 @@ export async function recordFailedAttempt(
       END,
       "lastAttemptAt" = ${now},
       "blockedUntil" = CASE
+        WHEN "AdminLoginThrottle"."windowStartedAt" < ${windowThreshold} THEN NULL
         WHEN (
           CASE
             WHEN "AdminLoginThrottle"."windowStartedAt" < ${windowThreshold} THEN 1
             ELSE "AdminLoginThrottle"."failureCount" + 1
           END
         ) >= ${MAX_LOGIN_ATTEMPTS} THEN ${blockedUntilTime}
+        WHEN "AdminLoginThrottle"."blockedUntil" <= ${now} THEN NULL
         ELSE "AdminLoginThrottle"."blockedUntil"
       END,
       "updatedAt" = ${now};

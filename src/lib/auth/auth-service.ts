@@ -23,6 +23,7 @@ export interface AuthenticateCredentialsResult {
   error?: string;
   rawToken?: string;
   sessionId?: string;
+  expiresAt?: Date;
   admin?: AdminSessionDTO;
 }
 
@@ -34,7 +35,8 @@ export const THROTTLE_BLOCKED_ERROR =
  * Server-side Credential Verification & Authentication Service.
  *
  * Handles:
- * - Email normalization
+ * - Password length check (>128 chars rejected generically before Argon2 hashing)
+ * - Email normalization & validation (accepts surrounding whitespace)
  * - Pre-auth rate-limit throttle check
  * - Constant-work anti-enumeration dummy verification for unknown emails
  * - Real Argon2id password verification
@@ -45,7 +47,7 @@ export const THROTTLE_BLOCKED_ERROR =
  *   - Creates AdminSession record storing ONLY token hash
  *   - Creates ADMIN_LOGIN_SUCCESS AuditLog (entityType: AdminSession, entityId: session.id)
  *   - Clears throttle entry
- * - Returns rawToken to Server Action (NEVER exposed to Client Component)
+ * - Returns rawToken, sessionId, and authoritative expiresAt to Server Action
  */
 export async function authenticateAdminCredentials(
   params: AuthenticateCredentialsParams,
@@ -53,13 +55,18 @@ export async function authenticateAdminCredentials(
 ): Promise<AuthenticateCredentialsResult> {
   const { email, password, clientAddress, userAgent = null } = params;
 
-  // 1. Email normalization & validation
+  // 1. Password input guard: reject >128 chars generically before Argon2 work
+  if (!password || typeof password !== "string" || password.length > 128) {
+    return { success: false, error: GENERIC_CREDENTIAL_ERROR };
+  }
+
+  // 2. Email normalization & validation (accepts surrounding whitespace)
   const normalized = validateAndNormalizeEmail(email);
   if (!normalized) {
     return { success: false, error: GENERIC_CREDENTIAL_ERROR };
   }
 
-  // 2. Pre-auth throttle check
+  // 3. Pre-auth throttle check
   const throttleCheck = await checkThrottle(
     normalized,
     clientAddress,
@@ -71,7 +78,7 @@ export async function authenticateAdminCredentials(
 
   const client = txPrisma ?? prisma;
 
-  // 3. Admin lookup
+  // 4. Admin lookup
   const admin = await client.adminUser.findUnique({
     where: { normalizedEmail: normalized },
     select: {
@@ -84,7 +91,7 @@ export async function authenticateAdminCredentials(
     },
   });
 
-  // 4. Password verification (constant-work for non-existent accounts)
+  // 5. Password verification (constant-work for non-existent accounts)
   let isValidPassword = false;
   if (!admin) {
     await verifyAgainstDummy(password);
@@ -92,13 +99,13 @@ export async function authenticateAdminCredentials(
     isValidPassword = await verifyPassword(admin.passwordHash, password);
   }
 
-  // 5. Check credentials and account active status
+  // 6. Check credentials and account active status
   if (!admin || !isValidPassword || !admin.isActive) {
     await recordFailedAttempt(normalized, clientAddress, txPrisma);
     return { success: false, error: GENERIC_CREDENTIAL_ERROR };
   }
 
-  // 6. Success: atomic database transaction
+  // 7. Success: atomic database transaction
   const executeLoginTx = async (tx: Prisma.TransactionClient) => {
     const now = new Date();
 
@@ -147,6 +154,7 @@ export async function authenticateAdminCredentials(
     success: true,
     rawToken: result.rawToken,
     sessionId: result.sessionId,
+    expiresAt: result.expiresAt,
     admin: adminDto,
   };
 }
