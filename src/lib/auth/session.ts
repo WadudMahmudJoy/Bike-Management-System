@@ -1,27 +1,39 @@
 import "server-only";
 import { cookies } from "next/headers";
+import type { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { generateSessionToken, hashSessionToken } from "./token";
 import {
   getSessionCookieName,
+  getAdminSessionCookieOptions,
   SESSION_LIFETIME_MS,
 } from "./constants";
 import type { SessionVerificationResult } from "./types";
 
+/** Result returned by createAdminSessionRecord. */
+export interface CreateSessionRecordResult {
+  sessionId: string;
+  rawToken: string;
+  expiresAt: Date;
+}
+
 /**
- * Create a new admin session and set the session cookie.
- * The raw token is stored only in the cookie; the database stores its SHA-256 hash.
+ * Create a new admin session database record.
+ * Generates rawToken, computes SHA-256 hash, and inserts row into AdminSession.
+ * Database stores ONLY sessionTokenHash.
  */
-export async function createAdminSession(
+export async function createAdminSessionRecord(
   adminId: string,
   ipAddress: string | null,
   userAgent: string | null,
-): Promise<void> {
+  txPrisma?: Prisma.TransactionClient,
+): Promise<CreateSessionRecordResult> {
   const rawToken = generateSessionToken();
   const tokenHash = hashSessionToken(rawToken);
   const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
+  const client = txPrisma ?? prisma;
 
-  await prisma.adminSession.create({
+  const session = await client.adminSession.create({
     data: {
       adminUserId: adminId,
       sessionTokenHash: tokenHash,
@@ -31,63 +43,34 @@ export async function createAdminSession(
     },
   });
 
-  const cookieName = getSessionCookieName();
-  const isProd = process.env.NODE_ENV === "production";
-  const cookieStore = await cookies();
-
-  cookieStore.set(cookieName, rawToken, {
-    httpOnly: true,
-    secure: isProd,
-    sameSite: "lax",
-    path: "/",
-    maxAge: Math.floor(SESSION_LIFETIME_MS / 1000),
-  });
+  return {
+    sessionId: session.id,
+    rawToken,
+    expiresAt,
+  };
 }
 
 /**
- * Get the raw session token from the cookie.
- * Returns null if the cookie is missing or empty.
- */
-async function getSessionTokenFromCookie(): Promise<string | null> {
-  const cookieStore = await cookies();
-  const cookieName = getSessionCookieName();
-  const value = cookieStore.get(cookieName)?.value;
-  if (!value || value.trim().length === 0) return null;
-  return value;
-}
-
-/**
- * Delete the session cookie using identical cookie configuration.
- * Uses the same path and name to ensure proper deletion.
- */
-export async function deleteAdminSessionCookie(): Promise<void> {
-  const cookieStore = await cookies();
-  const cookieName = getSessionCookieName();
-  cookieStore.delete({
-    name: cookieName,
-    path: "/",
-  });
-}
-
-/**
- * Verify the current session from the cookie against the database.
+ * Verify a raw session token against the database.
+ * Computes hashSessionToken(rawToken) and queries AdminSession table.
  * Returns null if:
- * - Cookie is missing
- * - No matching session exists
+ * - Token is empty/invalid
+ * - Session record does not exist
  * - Session is revoked (revokedAt is not null)
  * - Session is expired (expiresAt <= now)
- * - Admin is inactive
- *
- * An invalid cookie is not accepted merely because it exists.
+ * - Admin account is inactive (!admin.isActive)
  */
-export async function getCurrentAdminSession(): Promise<SessionVerificationResult | null> {
-  const rawToken = await getSessionTokenFromCookie();
-  if (!rawToken) return null;
+export async function verifyAdminSessionToken(
+  rawToken: string,
+  txPrisma?: Prisma.TransactionClient,
+): Promise<SessionVerificationResult | null> {
+  if (!rawToken || rawToken.trim().length === 0) return null;
 
   const tokenHash = hashSessionToken(rawToken);
   const now = new Date();
+  const client = txPrisma ?? prisma;
 
-  const session = await prisma.adminSession.findUnique({
+  const session = await client.adminSession.findUnique({
     where: { sessionTokenHash: tokenHash },
     include: {
       admin: {
@@ -118,11 +101,94 @@ export async function getCurrentAdminSession(): Promise<SessionVerificationResul
   };
 }
 
+/**
+ * Revoke a session record in the database by raw token.
+ * Computes SHA-256 hash and updates revokedAt timestamp.
+ * Idempotent — safe to call repeatedly.
+ */
+export async function revokeAdminSessionToken(
+  rawToken: string,
+  txPrisma?: Prisma.TransactionClient,
+): Promise<string | null> {
+  if (!rawToken || rawToken.trim().length === 0) return null;
+
+  const tokenHash = hashSessionToken(rawToken);
+  const client = txPrisma ?? prisma;
+
+  try {
+    const session = await client.adminSession.findUnique({
+      where: { sessionTokenHash: tokenHash },
+      select: { id: true, adminUserId: true, revokedAt: true },
+    });
+
+    if (session && session.revokedAt === null) {
+      await client.adminSession.update({
+        where: { id: session.id },
+        data: { revokedAt: new Date() },
+      });
+    }
+
+    return session?.adminUserId ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /**
- * Revoke the current session and delete the cookie.
- * Returns the admin user ID if a session was found, null otherwise.
- * Idempotent — safe to call even with no valid session.
+ * Create a new admin session record and set the session cookie.
+ */
+export async function createAdminSession(
+  adminId: string,
+  ipAddress: string | null,
+  userAgent: string | null,
+): Promise<void> {
+  const { rawToken, expiresAt } = await createAdminSessionRecord(
+    adminId,
+    ipAddress,
+    userAgent,
+  );
+
+  const cookieName = getSessionCookieName();
+  const cookieOptions = getAdminSessionCookieOptions(expiresAt);
+  const cookieStore = await cookies();
+
+  cookieStore.set(cookieName, rawToken, cookieOptions);
+}
+
+/**
+ * Get raw session token from the current request cookie.
+ */
+async function getSessionTokenFromCookie(): Promise<string | null> {
+  const cookieStore = await cookies();
+  const cookieName = getSessionCookieName();
+  const value = cookieStore.get(cookieName)?.value;
+  if (!value || value.trim().length === 0) return null;
+  return value;
+}
+
+/**
+ * Delete the session cookie from the browser.
+ */
+export async function deleteAdminSessionCookie(): Promise<void> {
+  const cookieStore = await cookies();
+  const cookieName = getSessionCookieName();
+  cookieStore.delete({
+    name: cookieName,
+    path: "/",
+  });
+}
+
+/**
+ * Verify the current request session from the cookie.
+ */
+export async function getCurrentAdminSession(): Promise<SessionVerificationResult | null> {
+  const rawToken = await getSessionTokenFromCookie();
+  if (!rawToken) return null;
+  return verifyAdminSessionToken(rawToken);
+}
+
+/**
+ * Revoke the current request session and delete the cookie.
  */
 export async function revokeCurrentSession(): Promise<string | null> {
   const rawToken = await getSessionTokenFromCookie();
@@ -131,32 +197,13 @@ export async function revokeCurrentSession(): Promise<string | null> {
     return null;
   }
 
-  const tokenHash = hashSessionToken(rawToken);
-
-  try {
-    const session = await prisma.adminSession.findUnique({
-      where: { sessionTokenHash: tokenHash },
-      select: { id: true, adminUserId: true, revokedAt: true },
-    });
-
-    if (session && session.revokedAt === null) {
-      await prisma.adminSession.update({
-        where: { id: session.id },
-        data: { revokedAt: new Date() },
-      });
-    }
-
-    await deleteAdminSessionCookie();
-    return session?.adminUserId ?? null;
-  } catch {
-    await deleteAdminSessionCookie();
-    return null;
-  }
+  const adminUserId = await revokeAdminSessionToken(rawToken);
+  await deleteAdminSessionCookie();
+  return adminUserId;
 }
 
 /**
  * Complete logout: revoke session, write audit log, delete cookie.
- * Idempotent — safe to call repeatedly.
  */
 export async function logoutAdmin(): Promise<void> {
   const adminUserId = await revokeCurrentSession();

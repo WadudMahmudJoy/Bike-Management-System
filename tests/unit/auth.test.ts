@@ -9,9 +9,12 @@ import {
 import { generateSessionToken, hashSessionToken } from "@/lib/auth/token";
 import {
   getSessionCookieName,
+  getAdminSessionCookieOptions,
   DEV_COOKIE_NAME,
   PROD_COOKIE_NAME,
+  SESSION_LIFETIME_MS,
 } from "@/lib/auth/constants";
+import { getClientAddress, FALLBACK_CLIENT_ADDRESS } from "@/lib/auth/client-address";
 import { hasRequiredRole } from "@/lib/auth/authorization";
 import type { AdminSessionDTO } from "@/lib/auth/types";
 
@@ -79,7 +82,6 @@ describe("Token Primitives", () => {
     const token1 = generateSessionToken();
     const token2 = generateSessionToken();
     expect(token1).not.toBe(token2);
-    // Base64url of 32 bytes is ~43 chars
     expect(token1.length).toBeGreaterThanOrEqual(40);
   });
 
@@ -90,6 +92,26 @@ describe("Token Primitives", () => {
     expect(hash1).toBe(hash2);
     expect(hash1).toMatch(/^[a-f0-9]{64}$/);
     expect(token).not.toBe(hash1);
+  });
+});
+
+describe("Client Address Resolution & Proxy Trust", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("returns stable unknown-client fallback by default when AUTH_TRUST_PROXY is false/unset", async () => {
+    vi.stubEnv("AUTH_TRUST_PROXY", "false");
+    const address = await getClientAddress();
+    expect(address).toBe(FALLBACK_CLIENT_ADDRESS);
+    expect(FALLBACK_CLIENT_ADDRESS).toBe("unknown-client");
+  });
+
+  it("ignores spoofed x-forwarded-for headers by default", async () => {
+    vi.stubEnv("AUTH_TRUST_PROXY", "false");
+    vi.stubEnv("AUTH_TRUSTED_IP_HEADER", "x-forwarded-for");
+    const address = await getClientAddress();
+    expect(address).toBe(FALLBACK_CLIENT_ADDRESS);
   });
 });
 
@@ -108,6 +130,32 @@ describe("Cookie Configuration", () => {
     vi.stubEnv("NODE_ENV", "production");
     expect(getSessionCookieName()).toBe(PROD_COOKIE_NAME);
     expect(PROD_COOKIE_NAME).toBe("__Host-sdb_admin_session");
+  });
+
+  it("returns secure cookie options in development mode", () => {
+    vi.stubEnv("NODE_ENV", "development");
+    const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
+    const options = getAdminSessionCookieOptions(expiresAt);
+
+    expect(options.httpOnly).toBe(true);
+    expect(options.secure).toBe(false);
+    expect(options.sameSite).toBe("lax");
+    expect(options.path).toBe("/");
+    expect((options as unknown as Record<string, unknown>).domain).toBeUndefined();
+    expect(options.maxAge).toBe(Math.floor(SESSION_LIFETIME_MS / 1000));
+    expect(options.expires).toEqual(expiresAt);
+  });
+
+  it("enforces secure: true in production mode", () => {
+    vi.stubEnv("NODE_ENV", "production");
+    const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
+    const options = getAdminSessionCookieOptions(expiresAt);
+
+    expect(options.httpOnly).toBe(true);
+    expect(options.secure).toBe(true);
+    expect(options.sameSite).toBe("lax");
+    expect(options.path).toBe("/");
+    expect((options as unknown as Record<string, unknown>).domain).toBeUndefined();
   });
 });
 

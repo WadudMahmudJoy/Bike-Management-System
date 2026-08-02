@@ -8,7 +8,7 @@ import "server-only";
 export const SESSION_LIFETIME_MS = 12 * 60 * 60 * 1000;
 
 // ---------------------------------------------------------------------------
-// Cookie Names
+// Cookie Names & Options
 // ---------------------------------------------------------------------------
 
 /** Development cookie name. */
@@ -22,6 +22,32 @@ export function getSessionCookieName(): string {
   return process.env.NODE_ENV === "production"
     ? PROD_COOKIE_NAME
     : DEV_COOKIE_NAME;
+}
+
+export interface AdminSessionCookieOptions {
+  httpOnly: boolean;
+  secure: boolean;
+  sameSite: "lax";
+  path: string;
+  maxAge: number;
+  expires: Date;
+}
+
+/** Get standardized cookie configuration options for session cookies. */
+export function getAdminSessionCookieOptions(
+  expiresAt: Date,
+): AdminSessionCookieOptions {
+  const isProd = process.env.NODE_ENV === "production";
+  const maxAgeSeconds = Math.floor(SESSION_LIFETIME_MS / 1000);
+
+  return {
+    httpOnly: true,
+    secure: isProd,
+    sameSite: "lax",
+    path: "/",
+    maxAge: maxAgeSeconds,
+    expires: expiresAt,
+  };
 }
 
 // ---------------------------------------------------------------------------

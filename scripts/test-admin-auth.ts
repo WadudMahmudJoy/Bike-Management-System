@@ -1,9 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import "dotenv/config";
 import Module from "module";
 
 // Mock 'server-only' package for Node CLI integration test runner
 const originalRequire = Module.prototype.require;
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 (Module.prototype as any).require = function (id: string) {
   if (id === "server-only") {
     return {};
@@ -13,18 +13,26 @@ const originalRequire = Module.prototype.require;
 
 import { Pool } from "pg";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "../src/generated/prisma/client";
+import { PrismaClient, Prisma } from "../src/generated/prisma/client";
 import { hashPassword } from "../src/lib/auth/password";
 import { normalizeEmail } from "../src/lib/auth/email";
-import { generateSessionToken, hashSessionToken } from "../src/lib/auth/token";
+import {
+  createAdminSessionRecord,
+  verifyAdminSessionToken,
+  revokeAdminSessionToken,
+} from "../src/lib/auth/session";
 import {
   checkThrottle,
   recordFailedAttempt,
   clearThrottle,
+  computeThrottleKey,
 } from "../src/lib/auth/login-throttle";
 import {
+  authenticateAdminCredentials,
+  GENERIC_CREDENTIAL_ERROR,
+} from "../src/lib/auth/auth-service";
+import {
   MAX_LOGIN_ATTEMPTS,
-  SESSION_LIFETIME_MS,
 } from "../src/lib/auth/constants";
 
 // Ensure fallback AUTH_RATE_LIMIT_SECRET for test environment
@@ -44,12 +52,11 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 async function runAdminAuthIntegrationTests() {
-  console.log("\n🧪 Running Phase 2 Admin Auth Integration Tests...\n");
+  console.log(
+    "\n🧪 Running Phase 2.1 Admin Auth & Session Production Integration Tests...\n",
+  );
 
   const testRunId = Date.now().toString(36);
-  const testEmail = `synthetic-admin-${testRunId}@test.local`;
-  const normalizedTestEmail = normalizeEmail(testEmail);
-  const testPassword = "TestPassword123!Secure";
   const clientIp = "127.0.0.1";
 
   let testCount = 0;
@@ -66,227 +73,335 @@ async function runAdminAuthIntegrationTests() {
     }
   }
 
+  // Pre-existing unrelated throttle row inserted BEFORE test run to prove non-destructive cleanup
+  const unrelatedEmail = `unrelated-${testRunId}@test.local`;
+  const unrelatedKeyHash = computeThrottleKey(unrelatedEmail, clientIp);
+
+  await prisma.adminLoginThrottle.create({
+    data: {
+      keyHash: unrelatedKeyHash,
+      failureCount: 2,
+      windowStartedAt: new Date(),
+      lastAttemptAt: new Date(),
+    },
+  });
+
   try {
-    // -------------------------------------------------------------------------
-    // Setup Synthetic Test Admin User
-    // -------------------------------------------------------------------------
-    const passwordHash = await hashPassword(testPassword);
-    const admin = await prisma.adminUser.create({
-      data: {
-        email: testEmail,
-        normalizedEmail: normalizedTestEmail,
-        passwordHash,
-        name: "Synthetic Test Admin",
-        role: "ADMIN",
-        isActive: true,
+    // Run all synthetic test mutations inside an isolated ROLLBACK transaction
+    await prisma.$transaction(
+      async (tx) => {
+        // -------------------------------------------------------------------------
+        // Setup Synthetic Test Admin Users inside Transaction
+        // -------------------------------------------------------------------------
+        const testEmail = `synthetic-admin-${testRunId}@test.local`;
+        const normalizedTestEmail = normalizeEmail(testEmail);
+        const testPassword = "TestPassword123!Secure";
+        const passwordHash = await hashPassword(testPassword);
+
+        const admin = await tx.adminUser.create({
+          data: {
+            email: testEmail,
+            normalizedEmail: normalizedTestEmail,
+            passwordHash,
+            name: "Synthetic Test Admin",
+            role: "ADMIN",
+            isActive: true,
+          },
+        });
+
+        const inactiveEmail = `inactive-${testRunId}@test.local`;
+        const inactiveAdmin = await tx.adminUser.create({
+          data: {
+            email: inactiveEmail,
+            normalizedEmail: normalizeEmail(inactiveEmail),
+            passwordHash,
+            name: "Inactive Test Admin",
+            role: "ADMIN",
+            isActive: false,
+          },
+        });
+
+        // -------------------------------------------------------------------------
+        // 1. Production Session Functions Verification
+        // -------------------------------------------------------------------------
+        const sessionRes = await createAdminSessionRecord(
+          admin.id,
+          clientIp,
+          "IntegrationTestRunner/1.0",
+          tx,
+        );
+
+        const dbRecord = await tx.adminSession.findUnique({
+          where: { id: sessionRes.sessionId },
+        });
+
+        assert(
+          dbRecord !== null &&
+            dbRecord.sessionTokenHash !== sessionRes.rawToken,
+          "createAdminSessionRecord stores SHA-256 hash and never raw token in database",
+        );
+
+        const verifiedSession = await verifyAdminSessionToken(
+          sessionRes.rawToken,
+          tx,
+        );
+        assert(
+          verifiedSession !== null && verifiedSession.admin.id === admin.id,
+          "verifyAdminSessionToken verifies valid active token",
+        );
+
+        // Malformed token verification
+        const malformedResult = await verifyAdminSessionToken(
+          "invalid-short-token",
+          tx,
+        );
+        assert(
+          malformedResult === null,
+          "verifyAdminSessionToken rejects malformed token",
+        );
+
+        // Expired session test
+        const expiredRes = await createAdminSessionRecord(
+          admin.id,
+          clientIp,
+          "TestRunner",
+          tx,
+        );
+        await tx.adminSession.update({
+          where: { id: expiredRes.sessionId },
+          data: { expiresAt: new Date(Date.now() - 1000) },
+        });
+        const expiredVerification = await verifyAdminSessionToken(
+          expiredRes.rawToken,
+          tx,
+        );
+        assert(
+          expiredVerification === null,
+          "verifyAdminSessionToken rejects expired session",
+        );
+
+        // Inactive admin session test
+        const inactiveSessionRes = await createAdminSessionRecord(
+          inactiveAdmin.id,
+          clientIp,
+          "TestRunner",
+          tx,
+        );
+        const inactiveVerification = await verifyAdminSessionToken(
+          inactiveSessionRes.rawToken,
+          tx,
+        );
+        assert(
+          inactiveVerification === null,
+          "verifyAdminSessionToken rejects inactive admin session",
+        );
+
+        // Session revocation test
+        const revokeUserId = await revokeAdminSessionToken(
+          sessionRes.rawToken,
+          tx,
+        );
+        assert(
+          revokeUserId === admin.id,
+          "revokeAdminSessionToken revokes active session",
+        );
+
+        // Idempotent revocation test
+        const secondRevokeUserId = await revokeAdminSessionToken(
+          sessionRes.rawToken,
+          tx,
+        );
+        assert(
+          secondRevokeUserId === admin.id,
+          "revokeAdminSessionToken is idempotent",
+        );
+
+        const postRevokeVerification = await verifyAdminSessionToken(
+          sessionRes.rawToken,
+          tx,
+        );
+        assert(
+          postRevokeVerification === null,
+          "verifyAdminSessionToken rejects post-revocation token",
+        );
+
+        // -------------------------------------------------------------------------
+        // 2. Production Authentication Service (authenticateAdminCredentials)
+        // -------------------------------------------------------------------------
+
+        // Unknown email returns generic error
+        const unknownAuth = await authenticateAdminCredentials(
+          {
+            email: `unknown-${testRunId}@test.local`,
+            password: testPassword,
+            clientAddress: clientIp,
+          },
+          tx,
+        );
+        assert(
+          unknownAuth.success === false &&
+            unknownAuth.error === GENERIC_CREDENTIAL_ERROR,
+          "authenticateAdminCredentials returns generic credential error for unknown email",
+        );
+
+        // Wrong password returns identical generic error
+        const wrongPassAuth = await authenticateAdminCredentials(
+          {
+            email: testEmail,
+            password: "WrongPassword123!",
+            clientAddress: clientIp,
+          },
+          tx,
+        );
+        assert(
+          wrongPassAuth.success === false &&
+            wrongPassAuth.error === GENERIC_CREDENTIAL_ERROR,
+          "authenticateAdminCredentials returns identical generic error for wrong password",
+        );
+
+        // Inactive account returns generic error
+        const inactiveAuth = await authenticateAdminCredentials(
+          {
+            email: inactiveEmail,
+            password: testPassword,
+            clientAddress: clientIp,
+          },
+          tx,
+        );
+        assert(
+          inactiveAuth.success === false &&
+            inactiveAuth.error === GENERIC_CREDENTIAL_ERROR,
+          "authenticateAdminCredentials returns generic error for inactive account",
+        );
+
+        // Successful authentication
+        const successAuth = await authenticateAdminCredentials(
+          {
+            email: testEmail,
+            password: testPassword,
+            clientAddress: clientIp,
+            userAgent: "IntegrationTestRunner/1.0",
+          },
+          tx,
+        );
+
+        assert(
+          successAuth.success === true &&
+            typeof successAuth.rawToken === "string" &&
+            typeof successAuth.sessionId === "string",
+          "authenticateAdminCredentials creates session and returns rawToken & sessionId on success",
+        );
+
+        // Verify AuditLog record entityType and entityId
+        const auditRecord = await tx.auditLog.findFirst({
+          where: {
+            adminUserId: admin.id,
+            action: "ADMIN_LOGIN_SUCCESS",
+          },
+          orderBy: { createdAt: "desc" },
+        });
+
+        assert(
+          auditRecord !== null &&
+            auditRecord.entityType === "AdminSession" &&
+            auditRecord.entityId === successAuth.sessionId,
+          "Successful login audit log references entityType: 'AdminSession' and entityId: session.id",
+        );
+
+        // -------------------------------------------------------------------------
+        // 3. Concurrency Integration Test for Throttling
+        // -------------------------------------------------------------------------
+        const concurrentEmail = `concurrent-${testRunId}@test.local`;
+        const normalizedConcurrentEmail = normalizeEmail(concurrentEmail);
+
+        // Issue 5 simultaneous recordFailedAttempt calls
+        await Promise.all([
+          recordFailedAttempt(normalizedConcurrentEmail, clientIp, tx),
+          recordFailedAttempt(normalizedConcurrentEmail, clientIp, tx),
+          recordFailedAttempt(normalizedConcurrentEmail, clientIp, tx),
+          recordFailedAttempt(normalizedConcurrentEmail, clientIp, tx),
+          recordFailedAttempt(normalizedConcurrentEmail, clientIp, tx),
+        ]);
+
+        const concurrentCheck = await checkThrottle(
+          normalizedConcurrentEmail,
+          clientIp,
+          tx,
+        );
+        assert(
+          concurrentCheck.blocked === true,
+          "5 simultaneous recordFailedAttempt calls result in blocked throttle state",
+        );
+
+        const concurrentKey = computeThrottleKey(
+          normalizedConcurrentEmail,
+          clientIp,
+        );
+        const concurrentRecord = await tx.adminLoginThrottle.findUnique({
+          where: { keyHash: concurrentKey },
+        });
+        assert(
+          concurrentRecord !== null &&
+            concurrentRecord.failureCount >= MAX_LOGIN_ATTEMPTS,
+          "Concurrent failed attempt updates preserve all failure count increments",
+        );
+
+        // Clear synthetic throttle key
+        await clearThrottle(normalizedConcurrentEmail, clientIp, tx);
+        const postClearCheck = await checkThrottle(
+          normalizedConcurrentEmail,
+          clientIp,
+          tx,
+        );
+        assert(
+          postClearCheck.blocked === false,
+          "clearThrottle removes matching throttle entry",
+        );
+
+        // Intentionally throw to trigger transaction rollback for synthetic rows
+        throw new Error("__TEST_ROLLBACK__");
       },
-    });
-
-    // -------------------------------------------------------------------------
-    // 1. Database session creation and token hash storage
-    // -------------------------------------------------------------------------
-    const rawToken = generateSessionToken();
-    const tokenHash = hashSessionToken(rawToken);
-    const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
-
-    const session = await prisma.adminSession.create({
-      data: {
-        adminUserId: admin.id,
-        sessionTokenHash: tokenHash,
-        expiresAt,
-        ipAddress: clientIp,
-        userAgent: "IntegrationTestRunner/1.0",
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
       },
-    });
-
-    assert(
-      session.sessionTokenHash === tokenHash,
-      "Database stores SHA-256 session token hash",
     );
-    assert(
-      session.sessionTokenHash !== rawToken,
-      "Raw session token is not stored in database",
-    );
-
-    // -------------------------------------------------------------------------
-    // 2. Session verification assertions
-    // -------------------------------------------------------------------------
-    const fetchedSession = await prisma.adminSession.findUnique({
-      where: { sessionTokenHash: tokenHash },
-      include: { admin: true },
-    });
-
-    assert(
-      fetchedSession !== null &&
-        fetchedSession.revokedAt === null &&
-        fetchedSession.expiresAt > new Date() &&
-        fetchedSession.admin.isActive === true,
-      "Active valid session is accepted",
-    );
-
-    // Expired session verification check
-    const expiredToken = generateSessionToken();
-    const expiredHash = hashSessionToken(expiredToken);
-    const expiredSession = await prisma.adminSession.create({
-      data: {
-        adminUserId: admin.id,
-        sessionTokenHash: expiredHash,
-        expiresAt: new Date(Date.now() - 1000), // Expired 1 second ago
-      },
-    });
-
-    const isExpired = expiredSession.expiresAt <= new Date();
-    assert(isExpired, "Expired session is rejected");
-
-    // Revoked session check
-    const revokedToken = generateSessionToken();
-    const revokedHash = hashSessionToken(revokedToken);
-    const revokedSession = await prisma.adminSession.create({
-      data: {
-        adminUserId: admin.id,
-        sessionTokenHash: revokedHash,
-        expiresAt: new Date(Date.now() + SESSION_LIFETIME_MS),
-        revokedAt: new Date(),
-      },
-    });
-
-    assert(revokedSession.revokedAt !== null, "Revoked session is rejected");
-
-    // Inactive admin session check
-    const inactiveEmail = `inactive-${testRunId}@test.local`;
-    const inactiveAdmin = await prisma.adminUser.create({
-      data: {
-        email: inactiveEmail,
-        normalizedEmail: normalizeEmail(inactiveEmail),
-        passwordHash,
-        name: "Inactive Admin",
-        role: "ADMIN",
-        isActive: false,
-      },
-    });
-
-    const inactiveToken = generateSessionToken();
-    const inactiveHash = hashSessionToken(inactiveToken);
-    await prisma.adminSession.create({
-      data: {
-        adminUserId: inactiveAdmin.id,
-        sessionTokenHash: inactiveHash,
-        expiresAt: new Date(Date.now() + SESSION_LIFETIME_MS),
-      },
-    });
-
-    const inactiveSessionRecord = await prisma.adminSession.findUnique({
-      where: { sessionTokenHash: inactiveHash },
-      include: { admin: true },
-    });
-    assert(
-      inactiveSessionRecord?.admin.isActive === false,
-      "Inactive admin session is rejected",
-    );
-
-    // -------------------------------------------------------------------------
-    // 3. Login Throttling Lifecycle (5 attempts block, success clears)
-    // -------------------------------------------------------------------------
-    const throttleTestEmail = `throttle-${testRunId}@test.local`;
-    const normalizedThrottleEmail = normalizeEmail(throttleTestEmail);
-
-    // Verify initial unblocked state
-    let check = await checkThrottle(normalizedThrottleEmail, clientIp);
-    assert(check.blocked === false, "Initial throttle state is unblocked");
-
-    // Record 4 failed attempts (under limit)
-    for (let i = 1; i < MAX_LOGIN_ATTEMPTS; i++) {
-      await recordFailedAttempt(normalizedThrottleEmail, clientIp);
+  } catch (err) {
+    if (err instanceof Error && err.message === "__TEST_ROLLBACK__") {
+      // Expected transaction rollback
+    } else {
+      console.error(
+        "\n❌ Integration Test Failed:",
+        err instanceof Error ? err.message : err,
+      );
+      process.exit(1);
     }
+  }
 
-    check = await checkThrottle(normalizedThrottleEmail, clientIp);
+  // -------------------------------------------------------------------------
+  // 4. Non-Destructive Cleanup Safety Proof
+  // -------------------------------------------------------------------------
+  try {
+    const survivingUnrelatedRecord =
+      await prisma.adminLoginThrottle.findUnique({
+        where: { keyHash: unrelatedKeyHash },
+      });
+
     assert(
-      check.blocked === false,
-      `Under limit (${MAX_LOGIN_ATTEMPTS - 1} attempts) remains unblocked`,
+      survivingUnrelatedRecord !== null,
+      "Unrelated pre-existing throttle row survives test suite execution (non-destructive cleanup verified)",
     );
-
-    // 5th failure triggers block
-    await recordFailedAttempt(normalizedThrottleEmail, clientIp);
-    check = await checkThrottle(normalizedThrottleEmail, clientIp);
-    assert(
-      check.blocked === true,
-      `5th failure blocks attempts (MAX_LOGIN_ATTEMPTS reached)`,
-    );
-
-    // Clear throttle
-    await clearThrottle(normalizedThrottleEmail, clientIp);
-    check = await checkThrottle(normalizedThrottleEmail, clientIp);
-    assert(
-      check.blocked === false,
-      "Successful authentication/clearThrottle clears throttle state",
-    );
-
-    // -------------------------------------------------------------------------
-    // 4. Session Revocation & Idempotent Logout Test
-    // -------------------------------------------------------------------------
-    await prisma.adminSession.update({
-      where: { id: session.id },
-      data: { revokedAt: new Date() },
-    });
-
-    const postRevokeSession = await prisma.adminSession.findUnique({
-      where: { id: session.id },
-    });
-    assert(
-      postRevokeSession?.revokedAt !== null,
-      "Logout revokes session record in database",
-    );
-
-    // Second revocation attempt on already revoked session (idempotency)
-    await prisma.adminSession.update({
-      where: { id: session.id },
-      data: { revokedAt: new Date() },
-    });
-    assert(true, "Repeated logout / revocation operation is safe & idempotent");
 
     console.log(
-      `\n✅ All ${passCount} / ${testCount} Admin Auth Integration Tests PASSED CLEANLY!\n`,
+      `\n✅ All ${passCount} / ${testCount} Phase 2.1 Integration Tests PASSED CLEANLY!\n`,
     );
-  } catch (error) {
-    console.error(
-      "\n❌ Integration Test Failed:",
-      error instanceof Error ? error.message : error,
-    );
-    process.exit(1);
   } finally {
-    // -------------------------------------------------------------------------
-    // Comprehensive Cleanup (Leave no test rows behind)
-    // -------------------------------------------------------------------------
-    console.log("🧹 Cleaning up synthetic test data...");
-    try {
-      const testUsers = await prisma.adminUser.findMany({
-        where: { email: { contains: testRunId } },
-        select: { id: true },
-      });
-      const testUserIds = testUsers.map((u) => u.id);
-
-      if (testUserIds.length > 0) {
-        await prisma.auditLog.deleteMany({
-          where: { adminUserId: { in: testUserIds } },
-        });
-        await prisma.adminSession.deleteMany({
-          where: { adminUserId: { in: testUserIds } },
-        });
-        await prisma.adminUser.deleteMany({
-          where: { id: { in: testUserIds } },
-        });
-      }
-
-      await prisma.adminLoginThrottle.deleteMany({
-        where: { keyHash: { not: "" } },
-      });
-    } catch (cleanupErr) {
-      console.error("Cleanup error:", cleanupErr);
-    } finally {
-      await prisma.$disconnect();
-      await pool.end();
-      console.log("✨ Cleanup complete.\n");
-    }
+    // Cleanup the single pre-existing test throttle row created outside transaction
+    await prisma.adminLoginThrottle.deleteMany({
+      where: { keyHash: unrelatedKeyHash },
+    });
+    await prisma.$disconnect();
+    await pool.end();
+    console.log("✨ Non-destructive cleanup complete.\n");
   }
 }
 

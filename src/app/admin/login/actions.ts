@@ -2,17 +2,16 @@
 
 import { z } from "zod";
 import { redirect } from "next/navigation";
-import { headers } from "next/headers";
-import { prisma } from "@/lib/prisma";
-import { validateAndNormalizeEmail, emailSchema } from "@/lib/auth/email";
-import { verifyPassword, verifyAgainstDummy } from "@/lib/auth/password";
-import {
-  checkThrottle,
-  recordFailedAttempt,
-  clearThrottle,
-} from "@/lib/auth/login-throttle";
-import { createAdminSession, logoutAdmin } from "@/lib/auth/session";
+import { headers, cookies } from "next/headers";
+import { emailSchema } from "@/lib/auth/email";
 import { getClientAddress } from "@/lib/auth/client-address";
+import {
+  getSessionCookieName,
+  getAdminSessionCookieOptions,
+  SESSION_LIFETIME_MS,
+} from "@/lib/auth/constants";
+import { authenticateAdminCredentials } from "@/lib/auth/auth-service";
+import { logoutAdmin, revokeAdminSessionToken } from "@/lib/auth/session";
 import type { LoginResult } from "@/lib/auth/types";
 
 const loginSchema = z.object({
@@ -21,19 +20,17 @@ const loginSchema = z.object({
 });
 
 const GENERIC_ERROR = "Invalid email or password.";
-const THROTTLE_ERROR = "Too many sign-in attempts. Please try again later.";
 
 /**
  * Server Action for admin login.
- * Validates credentials, enforces throttling, creates session on success.
- * Never reveals whether an email exists or which part of credentials failed.
+ * Delegates credential authentication to server-only auth service,
+ * sets HttpOnly session cookie, and redirects to dashboard.
  */
 export async function loginAction(
   _prevState: LoginResult,
   formData: FormData,
 ): Promise<LoginResult> {
   try {
-    // 1. Validate form data
     const raw = {
       email: formData.get("email"),
       password: formData.get("password"),
@@ -45,73 +42,40 @@ export async function loginAction(
     }
 
     const { email, password } = parsed.data;
-    const normalized = validateAndNormalizeEmail(email);
-    if (!normalized) {
-      return { success: false, error: GENERIC_ERROR };
-    }
-
     const clientAddress = await getClientAddress();
-
-    // 2. Check throttle BEFORE authentication
-    const throttleCheck = await checkThrottle(normalized, clientAddress);
-    if (throttleCheck.blocked) {
-      return { success: false, error: THROTTLE_ERROR };
-    }
-
-    // 3. Look up admin by normalized email
-    const admin = await prisma.adminUser.findUnique({
-      where: { normalizedEmail: normalized },
-      select: {
-        id: true,
-        passwordHash: true,
-        isActive: true,
-        name: true,
-      },
-    });
-
-    // 4. Verify password (constant-work for nonexistent accounts)
-    let passwordValid = false;
-    if (!admin) {
-      await verifyAgainstDummy(password);
-    } else {
-      passwordValid = await verifyPassword(admin.passwordHash, password);
-    }
-
-    // 5. Check credentials and active status
-    if (!admin || !passwordValid || !admin.isActive) {
-      await recordFailedAttempt(normalized, clientAddress);
-      return { success: false, error: GENERIC_ERROR };
-    }
-
-    // 6. Success: update lastLoginAt and write audit log in transaction
     const headerStore = await headers();
     const userAgent = headerStore.get("user-agent");
 
-    await prisma.$transaction(async (tx) => {
-      // Update lastLoginAt
-      await tx.adminUser.update({
-        where: { id: admin.id },
-        data: { lastLoginAt: new Date() },
-      });
-
-      // Write redacted audit log entry
-      await tx.auditLog.create({
-        data: {
-          adminUserId: admin.id,
-          action: "ADMIN_LOGIN_SUCCESS",
-          entityType: "AdminSession",
-          entityId: admin.id,
-        },
-      });
+    const authResult = await authenticateAdminCredentials({
+      email,
+      password,
+      clientAddress,
+      userAgent,
     });
 
-    // Clear throttle outside transaction (uses its own HMAC computation)
-    await clearThrottle(normalized, clientAddress);
+    if (!authResult.success || !authResult.rawToken) {
+      return { success: false, error: authResult.error ?? GENERIC_ERROR };
+    }
 
-    // Create session and set cookie
-    await createAdminSession(admin.id, clientAddress, userAgent);
+    // Set HttpOnly session cookie
+    const expiresAt = new Date(Date.now() + SESSION_LIFETIME_MS);
+    const cookieName = getSessionCookieName();
+    const cookieOptions = getAdminSessionCookieOptions(expiresAt);
+
+    try {
+      const cookieStore = await cookies();
+      cookieStore.set(cookieName, authResult.rawToken, cookieOptions);
+    } catch {
+      // If cookie setting fails, revoke the newly created session
+      if (authResult.rawToken) {
+        await revokeAdminSessionToken(authResult.rawToken);
+      }
+      return {
+        success: false,
+        error: "An unexpected error occurred. Please try again.",
+      };
+    }
   } catch {
-    // Never expose database or internal errors
     return {
       success: false,
       error: "An unexpected error occurred. Please try again.",
@@ -124,8 +88,7 @@ export async function loginAction(
 
 /**
  * Server Action for admin logout.
- * Revokes session, preserves session history, writes safe audit log.
- * Idempotent — safe to call repeatedly.
+ * Revokes session, clears cookie, writes audit log, redirects to login.
  */
 export async function logoutAction(): Promise<void> {
   try {
