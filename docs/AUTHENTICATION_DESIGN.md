@@ -40,12 +40,12 @@ When an unknown email or inactive account is queried during login, authenticatio
 
 ---
 
-## 4. Opaque Session Tokens & Hashing
+## 4. Opaque Session Tokens & Exact Expiry
 
 - **Raw Token Generation:** Cryptographically secure 32-byte random buffer, base64url-encoded (`src/lib/auth/token.ts`).
 - **Token Delivery:** Delivered exclusively via HTTP cookies set by Server Actions. Raw tokens are never returned to Client Components, never logged, and never stored in the database.
 - **Database Storage:** The `AdminSession` table stores only the SHA-256 hex digest (`sessionTokenHash`).
-- **Session Expiry:** Absolute lifetime of 12 hours (`SESSION_LIFETIME_MS = 43200000`). Database session `expiresAt` is the authoritative source for session cookie `expires` and `maxAge`.
+- **Session Expiry:** Absolute lifetime of 12 hours (`SESSION_LIFETIME_MS = 43200000`). Database session `expiresAt` is the authoritative source for session cookie `expires` and `maxAge`. `maxAge` is computed dynamically from remaining lifetime (`expiresAt.getTime() - Date.now()`).
 
 ---
 
@@ -59,6 +59,7 @@ When an unknown email or inactive account is queried during login, authenticatio
   - `path: "/"`
   - `secure: true` in production (`secure: false` allowed only for local HTTP development)
   - `domain`: Intentionally omitted to comply with `__Host-` prefix requirements.
+  - `maxAge`: Derived directly from remaining session lifetime (`expiresAt.getTime() - Date.now()`).
 
 ---
 
@@ -101,12 +102,13 @@ When an unknown email or inactive account is queried during login, authenticatio
 
 ---
 
-## 9. Session Revocation & Logout Audit Semantics
+## 9. Atomic Session Revocation, Focused Logout Service & Audit Semantics
 
-- **Structured Revocation Result (`revokeAdminSessionToken`):** Returns `{ success, sessionId, adminUserId, newlyRevoked, error }`. Database errors during revocation return `success: false` rather than silently converting failures into success.
-- **Idempotent Revocation:** Revoking an already-revoked or missing session token is idempotent (`success: true`, `newlyRevoked: false`).
-- **Logout Audit:** Creates an `ADMIN_LOGOUT` entry referencing `entityType: "AdminSession"` and `entityId: sessionId` ONLY when a session was newly revoked (`newlyRevoked === true`). Does NOT create duplicate audit logs on repeated logout.
-- **Cookie Handling:** Session cookie is deleted upon successful revocation or missing cookie.
+- **Atomic Revocation (`revokeAdminSessionToken`):** Uses an atomic conditional `updateMany({ where: { id: session.id, revokedAt: null }, data: { revokedAt: new Date() } })`. Under concurrent revocation calls, `updateResult.count === 1` produces `newlyRevoked: true` for exactly one caller; concurrent callers receive `newlyRevoked: false`.
+- **Structured Revocation Result:** Returns `{ success, sessionId, adminUserId, newlyRevoked, error }`. Database errors return `success: false` with generic internal error messages without leaking Prisma or database stack details.
+- **Focused Logout Service (`logoutAdminSession`):** Core production function revoking a session token and writing a single `ADMIN_LOGOUT` audit log referencing `entityType: "AdminSession"` and `entityId: sessionId` ONLY when `newlyRevoked === true`. Direct target for unit and integration testing without request cookie context.
+- **Logout Action Control Flow (`logoutAction`):** Server Action calls `logoutAdmin()`. Redirects to `/admin/login` ONLY when `result.success === true`. If database revocation fails (`result.success === false`), returns error state `{ success: false, error: "Unable to sign out securely. Please try again." }` without deleting the cookie or redirecting to the login page.
+- **UI Error Feedback (`AdminShell`):** Displays error notification if logout fails and keeps the administrator on the protected page with the logout button disabled while pending.
 
 ---
 
@@ -140,9 +142,9 @@ When an unknown email or inactive account is queried during login, authenticatio
 ## 12. Testing & Non-Destructive Teardown
 
 - **Unit Test Suite (`pnpm test`):** 27 unit tests verifying email normalization, Argon2id hashing, dummy verification, token entropy, SHA-256 digests, pure client address proxy trust resolution across all IPv4/IPv6/malformed/comma-separated branches, cookie options, and role authorization.
-- **Integration Test Suite (`pnpm test:admin-auth`):** 20 integration tests calling production session functions (`createAdminSessionRecord`, `verifyAdminSessionToken`, `revokeAdminSessionToken`), production auth service (`authenticateAdminCredentials`), real multi-connection concurrency throttling (5 simultaneous calls outside transaction), window rollover clearing stale `blockedUntil`, exact expiry matching, audit trail references, and non-destructive isolated ROLLBACK cleanup.
+- **Integration Test Suite (`pnpm test:admin-auth`):** 23 integration tests calling production session functions (`createAdminSessionRecord`, `verifyAdminSessionToken`, `revokeAdminSessionToken`, `logoutAdminSession`), production auth service (`authenticateAdminCredentials`), real multi-connection concurrency throttling (5 simultaneous calls outside transaction), window rollover clearing stale `blockedUntil`, exact expiry matching, atomic concurrent logout audit references, simulated DB failures, and non-destructive isolated ROLLBACK cleanup.
 - **CLI Smoke Test (`pnpm test:admin-cli-smoke`):** 4 smoke test assertions verifying non-interactive TTY protection.
-- **Reliable Process Exit & Teardown:** Tests use `process.exitCode = 1` in error handlers to ensure `finally` cleanup blocks execute completely without leaving dangling rows.
+- **Reliable Process Exit & Teardown:** Tests set `process.exitCode = 1` if assertions or cleanup fail, ensuring CI fails if test teardown is unsuccessful.
 
 ---
 
