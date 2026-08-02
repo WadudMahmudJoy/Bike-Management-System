@@ -1,39 +1,73 @@
 import "server-only";
 import { headers } from "next/headers";
+import { isIP } from "net";
+
+/** Allowlisted header names for proxy client IP extraction when AUTH_TRUST_PROXY="true". */
+const ALLOWED_TRUSTED_HEADERS = new Set([
+  "x-real-ip",
+  "x-forwarded-for",
+  "cf-connecting-ip",
+  "fastly-client-ip",
+  "true-client-ip",
+  "x-client-ip",
+]);
+
+/** Fallback address returned when client address cannot be determined securely. */
+export const FALLBACK_CLIENT_ADDRESS = "unknown-client";
 
 /**
  * Derive a client identifier for login throttling.
  *
  * Security considerations:
- * - Does NOT blindly trust arbitrary forwarding headers (X-Forwarded-For, etc.)
- *   as they can be spoofed without a trusted reverse proxy.
- * - In development, uses a stable fallback address.
- * - Production trusted-proxy configuration is deferred to deployment phase,
- *   at which point a known trusted proxy header can be read safely.
+ * - Does NOT trust arbitrary forwarding headers by default (prevents IP spoofing).
+ * - Only inspects forwarding headers when `AUTH_TRUST_PROXY="true"` is explicitly set.
+ * - Restricts header inspection to an explicitly configured allowlisted header name (`AUTH_TRUSTED_IP_HEADER`).
+ * - Validates IP format using Node's `net.isIP()`.
+ * - Returns `unknown-client` on missing, unconfigured, or malformed inputs.
+ * - Never logs or reveals raw IP addresses in public error messages.
  *
- * Returns a stable identifier string for the throttle key computation.
- * Never logs or returns the raw address in public error messages.
+ * Production Note: The upstream reverse proxy / ingress controller must be configured to strip
+ * untrusted client headers from incoming requests and inject the authenticated connection IP.
  */
 export async function getClientAddress(): Promise<string> {
   try {
-    const headerStore = await headers();
-
-    // Next.js provides the connecting IP in the x-forwarded-for header
-    // when running behind its built-in dev server or a trusted proxy.
-    // In production, this should be configured to read from a trusted header only.
-    const forwarded = headerStore.get("x-forwarded-for");
-    if (forwarded) {
-      // Take the first (leftmost) IP — the client's direct address
-      const firstIp = forwarded.split(",")[0]?.trim();
-      if (firstIp && firstIp.length > 0) {
-        return firstIp;
-      }
+    const isTrustProxyEnabled = process.env.AUTH_TRUST_PROXY === "true";
+    if (!isTrustProxyEnabled) {
+      return FALLBACK_CLIENT_ADDRESS;
     }
 
-    // Fallback: stable identifier when address cannot be determined
-    return "unknown-client";
+    const configuredHeader = (
+      process.env.AUTH_TRUSTED_IP_HEADER || "x-real-ip"
+    )
+      .toLowerCase()
+      .trim();
+
+    if (!ALLOWED_TRUSTED_HEADERS.has(configuredHeader)) {
+      return FALLBACK_CLIENT_ADDRESS;
+    }
+
+    const headerStore = await headers();
+    const rawHeaderValue = headerStore.get(configuredHeader);
+    if (!rawHeaderValue) {
+      return FALLBACK_CLIENT_ADDRESS;
+    }
+
+    const candidate = rawHeaderValue.trim();
+    if (!candidate || candidate.length > 45) {
+      return FALLBACK_CLIENT_ADDRESS;
+    }
+
+    // Reject comma-separated multi-IP values to prevent spoofing bypasses
+    if (candidate.includes(",")) {
+      return FALLBACK_CLIENT_ADDRESS;
+    }
+
+    if (isIP(candidate) === 0) {
+      return FALLBACK_CLIENT_ADDRESS;
+    }
+
+    return candidate;
   } catch {
-    // If headers() throws (e.g., outside request context), use fallback
-    return "unknown-client";
+    return FALLBACK_CLIENT_ADDRESS;
   }
 }
