@@ -33,12 +33,17 @@ export interface AdminSessionCookieOptions {
   expires: Date;
 }
 
-/** Get standardized cookie configuration options for session cookies. */
+/**
+ * Get standardized cookie configuration options for session cookies.
+ * Computes maxAge from supplied authoritative expiresAt so maxAge never exceeds
+ * remaining database-session lifetime.
+ */
 export function getAdminSessionCookieOptions(
   expiresAt: Date,
 ): AdminSessionCookieOptions {
   const isProd = process.env.NODE_ENV === "production";
-  const maxAgeSeconds = Math.floor(SESSION_LIFETIME_MS / 1000);
+  const remainingMs = expiresAt.getTime() - Date.now();
+  const maxAgeSeconds = Math.max(0, Math.floor(remainingMs / 1000));
 
   return {
     httpOnly: true,

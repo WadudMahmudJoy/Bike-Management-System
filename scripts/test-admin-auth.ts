@@ -20,6 +20,7 @@ import {
   createAdminSessionRecord,
   verifyAdminSessionToken,
   revokeAdminSessionToken,
+  logoutAdminSession,
 } from "../src/lib/auth/session";
 import {
   checkThrottle,
@@ -55,7 +56,7 @@ const prisma = new PrismaClient({ adapter });
 
 async function runAdminAuthIntegrationTests() {
   console.log(
-    "\n🧪 Running Phase 2.2 Admin Auth & Session Production Integration Tests...\n",
+    "\n🧪 Running Phase 2.3 Admin Auth & Session Production Integration Tests...\n",
   );
 
   const testRunId = Date.now().toString(36);
@@ -63,6 +64,8 @@ async function runAdminAuthIntegrationTests() {
 
   let testCount = 0;
   let passCount = 0;
+  let testFailed = false;
+  let cleanupFailed = false;
 
   function assert(condition: boolean, description: string) {
     testCount++;
@@ -71,6 +74,8 @@ async function runAdminAuthIntegrationTests() {
       console.log(`  ✓ Test ${testCount}: ${description}`);
     } else {
       console.error(`  ✗ Test ${testCount} FAILED: ${description}`);
+      testFailed = true;
+      process.exitCode = 1;
       throw new Error(`Assertion failed: ${description}`);
     }
   }
@@ -177,8 +182,9 @@ async function runAdminAuthIntegrationTests() {
         const cookieOptions = getAdminSessionCookieOptions(sessionRes.expiresAt);
         assert(
           cookieOptions.expires.getTime() === sessionRes.expiresAt.getTime() &&
-            cookieOptions.maxAge === Math.floor(SESSION_LIFETIME_MS / 1000),
-          "Cookie options use exact database session expiresAt and 12-hour maxAge",
+            cookieOptions.maxAge > 0 &&
+            cookieOptions.maxAge <= Math.floor(SESSION_LIFETIME_MS / 1000),
+          "Cookie options use exact database session expiresAt and bounded maxAge",
         );
 
         const verifiedSession = await verifyAdminSessionToken(
@@ -236,72 +242,116 @@ async function runAdminAuthIntegrationTests() {
           "verifyAdminSessionToken rejects inactive admin session",
         );
 
-        // Session revocation & audit semantics test
-        const revokeResult = await revokeAdminSessionToken(
-          sessionRes.rawToken,
-          tx,
-        );
+        // -------------------------------------------------------------------------
+        // 3. Production Logout Service & Atomic Revocation Tests
+        // -------------------------------------------------------------------------
+        const logoutRes = await logoutAdminSession(sessionRes.rawToken, tx);
         assert(
-          revokeResult.success === true &&
-            revokeResult.newlyRevoked === true &&
-            revokeResult.sessionId === sessionRes.sessionId &&
-            revokeResult.adminUserId === admin.id,
-          "revokeAdminSessionToken revokes active session and returns structured result",
+          logoutRes.success === true &&
+            logoutRes.newlyRevoked === true &&
+            logoutRes.sessionId === sessionRes.sessionId &&
+            logoutRes.adminUserId === admin.id,
+          "logoutAdminSession revokes active session and returns newlyRevoked: true",
         );
-
-        // Write logout audit log (mimicking logoutAdmin)
-        if (
-          revokeResult.success &&
-          revokeResult.newlyRevoked &&
-          revokeResult.adminUserId &&
-          revokeResult.sessionId
-        ) {
-          await tx.auditLog.create({
-            data: {
-              adminUserId: revokeResult.adminUserId,
-              action: "ADMIN_LOGOUT",
-              entityType: "AdminSession",
-              entityId: revokeResult.sessionId,
-            },
-          });
-        }
 
         const logoutAudit = await tx.auditLog.findFirst({
           where: {
             adminUserId: admin.id,
             action: "ADMIN_LOGOUT",
+            entityId: sessionRes.sessionId,
           },
         });
         assert(
           logoutAudit !== null &&
             logoutAudit.entityType === "AdminSession" &&
             logoutAudit.entityId === sessionRes.sessionId,
-          "Logout audit log references entityType: 'AdminSession' and entityId: sessionId",
+          "logoutAdminSession creates audit log referencing entityType: 'AdminSession' and entityId: sessionId",
         );
 
-        // Idempotent revocation test (second call on already revoked token)
-        const secondRevokeResult = await revokeAdminSessionToken(
+        // Idempotent second logout test
+        const secondLogoutRes = await logoutAdminSession(sessionRes.rawToken, tx);
+        assert(
+          secondLogoutRes.success === true &&
+            secondLogoutRes.newlyRevoked === false &&
+            secondLogoutRes.sessionId === sessionRes.sessionId,
+          "logoutAdminSession is idempotent (newlyRevoked: false on second call)",
+        );
+
+        const auditCount = await tx.auditLog.count({
+          where: {
+            adminUserId: admin.id,
+            action: "ADMIN_LOGOUT",
+            entityId: sessionRes.sessionId,
+          },
+        });
+        assert(
+          auditCount === 1,
+          "Repeated sequential logout creates exactly ONE audit log entry",
+        );
+
+        const postLogoutVerification = await verifyAdminSessionToken(
           sessionRes.rawToken,
           tx,
         );
         assert(
-          secondRevokeResult.success === true &&
-            secondRevokeResult.newlyRevoked === false &&
-            secondRevokeResult.sessionId === sessionRes.sessionId,
-          "revokeAdminSessionToken is idempotent (newlyRevoked is false on repeated call)",
+          postLogoutVerification === null,
+          "verifyAdminSessionToken rejects post-logout token",
         );
 
-        const postRevokeVerification = await verifyAdminSessionToken(
-          sessionRes.rawToken,
+        // Concurrent atomic logout test
+        const concurrentSession = await createAdminSessionRecord(
+          admin.id,
+          clientIp,
+          "ConcurrentRunner",
           tx,
         );
+        const [concurrentRes1, concurrentRes2] = await Promise.all([
+          logoutAdminSession(concurrentSession.rawToken, tx),
+          logoutAdminSession(concurrentSession.rawToken, tx),
+        ]);
+
+        const newlyRevokedCount = [concurrentRes1, concurrentRes2].filter(
+          (r) => r.newlyRevoked === true,
+        ).length;
         assert(
-          postRevokeVerification === null,
-          "verifyAdminSessionToken rejects post-revocation token",
+          newlyRevokedCount === 1,
+          "Two simultaneous logout calls produce exactly ONE newlyRevoked: true result",
+        );
+
+        const concurrentAuditCount = await tx.auditLog.count({
+          where: {
+            adminUserId: admin.id,
+            action: "ADMIN_LOGOUT",
+            entityId: concurrentSession.sessionId,
+          },
+        });
+        assert(
+          concurrentAuditCount === 1,
+          "Two simultaneous logout calls create exactly ONE ADMIN_LOGOUT audit entry",
+        );
+
+        // Simulated database revocation error test
+        const invalidClientMock = {
+          adminSession: {
+            findUnique: () => {
+              throw new Error("Simulated connection failure");
+            },
+          },
+        } as unknown as Prisma.TransactionClient;
+
+        const simulatedFailRes = await revokeAdminSessionToken(
+          "some-valid-token-string",
+          invalidClientMock,
+        );
+        assert(
+          simulatedFailRes.success === false &&
+            simulatedFailRes.newlyRevoked === false &&
+            simulatedFailRes.error === "Database error during session revocation",
+          "Simulated DB failure returns success: false, newlyRevoked: false, and generic error message",
         );
 
         // -------------------------------------------------------------------------
-        // 3. Production Authentication Service & Input Normalization
+        // 4. Production Authentication Service & Input Normalization
         // -------------------------------------------------------------------------
 
         // Whitespace email input test
@@ -380,7 +430,7 @@ async function runAdminAuthIntegrationTests() {
         );
 
         // -------------------------------------------------------------------------
-        // 4. Throttle Window Rollover Verification
+        // 5. Throttle Window Rollover Verification
         // -------------------------------------------------------------------------
         const rolloverEmail = `rollover-${testRunId}@test.local`;
         const normalizedRolloverEmail = normalizeEmail(rolloverEmail);
@@ -439,11 +489,12 @@ async function runAdminAuthIntegrationTests() {
     if (err instanceof Error && err.message === "__TEST_ROLLBACK__") {
       // Expected transaction rollback
     } else {
+      testFailed = true;
+      process.exitCode = 1;
       console.error(
         "\n❌ Integration Test Failed:",
         err instanceof Error ? err.message : err,
       );
-      process.exitCode = 1;
     }
   } finally {
     // Non-destructive cleanup of multi-connection & pre-existing synthetic rows
@@ -456,19 +507,28 @@ async function runAdminAuthIntegrationTests() {
       const survivingCheck = await prisma.adminLoginThrottle.findUnique({
         where: { keyHash: unrelatedKeyHash },
       });
-      assert(
-        survivingCheck === null,
-        "Surgical cleanup removed pre-existing test keys without affecting database stability",
-      );
+      if (survivingCheck !== null) {
+        throw new Error("Unrelated key was not cleaned up properly.");
+      }
     } catch (cleanupErr) {
-      console.error("Cleanup error:", cleanupErr);
+      cleanupFailed = true;
+      process.exitCode = 1;
+      console.error("\n❌ Cleanup Error:", cleanupErr);
     } finally {
       await prisma.$disconnect();
       await pool.end();
-      console.log(
-        `\n✅ All ${passCount} / ${testCount} Phase 2.2 Integration Tests PASSED CLEANLY!\n`,
-      );
-      console.log("✨ Non-destructive teardown complete.\n");
+
+      if (!testFailed && !cleanupFailed && process.exitCode !== 1) {
+        console.log(
+          `\n✅ All ${passCount} / ${testCount} Phase 2.3 Integration Tests PASSED CLEANLY!\n`,
+        );
+        console.log("✨ Non-destructive teardown complete.\n");
+      } else {
+        console.error(
+          `\n❌ Integration Test Suite FAILED (testFailed: ${testFailed}, cleanupFailed: ${cleanupFailed}, exitCode: ${process.exitCode})\n`,
+        );
+        process.exitCode = 1;
+      }
     }
   }
 }

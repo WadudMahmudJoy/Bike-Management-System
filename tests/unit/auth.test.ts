@@ -216,7 +216,8 @@ describe("Cookie Configuration", () => {
     expect(options.sameSite).toBe("lax");
     expect(options.path).toBe("/");
     expect((options as unknown as Record<string, unknown>).domain).toBeUndefined();
-    expect(options.maxAge).toBe(Math.floor(SESSION_LIFETIME_MS / 1000));
+    expect(options.maxAge).toBeGreaterThan(0);
+    expect(options.maxAge).toBeLessThanOrEqual(Math.floor(SESSION_LIFETIME_MS / 1000));
     expect(options.expires).toEqual(expiresAt);
   });
 
@@ -230,6 +231,8 @@ describe("Cookie Configuration", () => {
     expect(options.sameSite).toBe("lax");
     expect(options.path).toBe("/");
     expect((options as unknown as Record<string, unknown>).domain).toBeUndefined();
+    expect(options.maxAge).toBeGreaterThan(0);
+    expect(options.maxAge).toBeLessThanOrEqual(Math.floor(SESSION_LIFETIME_MS / 1000));
   });
 });
 
