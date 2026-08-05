@@ -39,13 +39,42 @@ export interface CustomerDetailDTO {
   createdByAdmin: {
     id: string;
     name: string;
-    email: string;
   } | null;
   roles: CustomerRoleType[];
   nidStatus: NidStatus;
   createdAt: string;
   updatedAt: string;
   auditHistory: CustomerAuditLogDTO[];
+}
+
+export interface CustomerEditDTO {
+  id: string;
+  fullName: string;
+  fatherName: string | null;
+  phone: string;
+  whatsappNumber: string | null;
+  email: string | null;
+  address: string | null;
+  emergencyContact: string | null;
+  internalNotes: string | null;
+  roles: CustomerRoleType[];
+  updatedAt: string;
+}
+
+export function mapDetailToEditDTO(detail: CustomerDetailDTO): CustomerEditDTO {
+  return {
+    id: detail.id,
+    fullName: detail.fullName,
+    fatherName: detail.fatherName,
+    phone: detail.phone,
+    whatsappNumber: detail.whatsappNumber,
+    email: detail.email,
+    address: detail.address,
+    emergencyContact: detail.emergencyContact,
+    internalNotes: detail.internalNotes,
+    roles: detail.roles,
+    updatedAt: detail.updatedAt,
+  };
 }
 
 export interface MatchingCustomerDTO {

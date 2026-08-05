@@ -4,10 +4,10 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createCustomerAction, updateCustomerAction } from "./actions";
-import type { CustomerDetailDTO, DuplicateWarningDTO, CustomerRoleType } from "@/lib/customer/types";
+import type { CustomerEditDTO, DuplicateWarningDTO, CustomerRoleType } from "@/lib/customer/types";
 
 interface CustomerFormProps {
-  initialData?: CustomerDetailDTO;
+  initialData?: CustomerEditDTO;
 }
 
 const ALL_ROLES: { value: CustomerRoleType; label: string }[] = [
@@ -42,6 +42,7 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
 
   const toggleRole = (role: CustomerRoleType) => {
+    if (isSubmitting) return;
     setSelectedRoles((prev) =>
       prev.includes(role) ? prev.filter((r) => r !== role) : [...prev, role]
     );
@@ -53,6 +54,8 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
     expectedDuplicateIds: string[] = []
   ) => {
     if (e) e.preventDefault();
+    if (isSubmitting) return;
+
     setError(null);
     setIsSubmitting(true);
 
@@ -122,7 +125,7 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
   };
 
   const handleConfirmDuplicate = () => {
-    if (!duplicateWarning) return;
+    if (!duplicateWarning || isSubmitting) return;
     setShowDuplicateModal(false);
     handleSubmit(undefined, true, duplicateWarning.duplicateCustomerIds);
   };
@@ -151,10 +154,11 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
                 type="text"
                 id="fullName"
                 required
+                disabled={isSubmitting}
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 placeholder="e.g. Mohammad Rahim"
-                className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2.5 text-sm text-[#F5F0E8] placeholder-[#E8E0D4]/30 focus:border-[#C8B88A] focus:outline-none min-h-[44px]"
+                className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2.5 text-sm text-[#F5F0E8] placeholder-[#E8E0D4]/30 focus:border-[#C8B88A] focus:outline-none min-h-[44px] disabled:opacity-50"
               />
             </div>
 
@@ -166,10 +170,11 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
               <input
                 type="text"
                 id="fatherName"
+                disabled={isSubmitting}
                 value={fatherName}
                 onChange={(e) => setFatherName(e.target.value)}
                 placeholder="e.g. Abdul Karim"
-                className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2.5 text-sm text-[#F5F0E8] placeholder-[#E8E0D4]/30 focus:border-[#C8B88A] focus:outline-none min-h-[44px]"
+                className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2.5 text-sm text-[#F5F0E8] placeholder-[#E8E0D4]/30 focus:border-[#C8B88A] focus:outline-none min-h-[44px] disabled:opacity-50"
               />
             </div>
 
@@ -182,10 +187,11 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
                 type="text"
                 id="phone"
                 required
+                disabled={isSubmitting}
                 value={phone}
                 onChange={(e) => setPhone(e.target.value)}
                 placeholder="e.g. 01712345678"
-                className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2.5 text-sm text-[#F5F0E8] placeholder-[#E8E0D4]/30 focus:border-[#C8B88A] focus:outline-none min-h-[44px]"
+                className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2.5 text-sm text-[#F5F0E8] placeholder-[#E8E0D4]/30 focus:border-[#C8B88A] focus:outline-none min-h-[44px] disabled:opacity-50"
               />
               <p className="text-xs text-[#E8E0D4]/50 mt-1">
                 Will be normalized to +8801XXXXXXXXX format.
@@ -200,10 +206,11 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
               <input
                 type="text"
                 id="whatsappNumber"
+                disabled={isSubmitting}
                 value={whatsappNumber}
                 onChange={(e) => setWhatsappNumber(e.target.value)}
                 placeholder="e.g. 01812345678"
-                className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2.5 text-sm text-[#F5F0E8] placeholder-[#E8E0D4]/30 focus:border-[#C8B88A] focus:outline-none min-h-[44px]"
+                className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2.5 text-sm text-[#F5F0E8] placeholder-[#E8E0D4]/30 focus:border-[#C8B88A] focus:outline-none min-h-[44px] disabled:opacity-50"
               />
             </div>
 
@@ -215,10 +222,11 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
               <input
                 type="email"
                 id="email"
+                disabled={isSubmitting}
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="e.g. customer@example.com"
-                className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2.5 text-sm text-[#F5F0E8] placeholder-[#E8E0D4]/30 focus:border-[#C8B88A] focus:outline-none min-h-[44px]"
+                className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2.5 text-sm text-[#F5F0E8] placeholder-[#E8E0D4]/30 focus:border-[#C8B88A] focus:outline-none min-h-[44px] disabled:opacity-50"
               />
             </div>
 
@@ -230,10 +238,11 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
               <input
                 type="text"
                 id="emergencyContact"
+                disabled={isSubmitting}
                 value={emergencyContact}
                 onChange={(e) => setEmergencyContact(e.target.value)}
                 placeholder="e.g. Brother: 01512345678"
-                className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2.5 text-sm text-[#F5F0E8] placeholder-[#E8E0D4]/30 focus:border-[#C8B88A] focus:outline-none min-h-[44px]"
+                className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2.5 text-sm text-[#F5F0E8] placeholder-[#E8E0D4]/30 focus:border-[#C8B88A] focus:outline-none min-h-[44px] disabled:opacity-50"
               />
             </div>
           </div>
@@ -246,14 +255,15 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
             <textarea
               id="address"
               rows={2}
+              disabled={isSubmitting}
               value={address}
               onChange={(e) => setAddress(e.target.value)}
               placeholder="Present and/or permanent address details..."
-              className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2.5 text-sm text-[#F5F0E8] placeholder-[#E8E0D4]/30 focus:border-[#C8B88A] focus:outline-none"
+              className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2.5 text-sm text-[#F5F0E8] placeholder-[#E8E0D4]/30 focus:border-[#C8B88A] focus:outline-none disabled:opacity-50"
             />
           </div>
 
-          {/* Customer Roles - Checkbox input onChange handles toggle cleanly */}
+          {/* Customer Roles */}
           <div>
             <label className="block text-sm font-medium text-[#E8E0D4] mb-2">
               Customer Roles <span className="text-red-400">*</span>
@@ -277,9 +287,10 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
                       id={inputId}
                       name="roles"
                       value={r.value}
+                      disabled={isSubmitting}
                       checked={isChecked}
                       onChange={() => toggleRole(r.value)}
-                      className="h-4 w-4 rounded border-[#3A3A3A] bg-[#0A0A0A] text-[#C8B88A] focus:ring-[#C8B88A]"
+                      className="h-4 w-4 rounded border-[#3A3A3A] bg-[#0A0A0A] text-[#C8B88A] focus:ring-[#C8B88A] disabled:opacity-50"
                     />
                     <span className="text-sm font-medium">{r.label}</span>
                   </label>
@@ -296,10 +307,11 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
             <textarea
               id="internalNotes"
               rows={3}
+              disabled={isSubmitting}
               value={internalNotes}
               onChange={(e) => setInternalNotes(e.target.value)}
               placeholder="Internal shop notes, preferences, or referral information..."
-              className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2.5 text-sm text-[#F5F0E8] placeholder-[#E8E0D4]/30 focus:border-[#C8B88A] focus:outline-none"
+              className="w-full rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-3.5 py-2.5 text-sm text-[#F5F0E8] placeholder-[#E8E0D4]/30 focus:border-[#C8B88A] focus:outline-none disabled:opacity-50"
             />
           </div>
         </div>
@@ -318,7 +330,9 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
             className="rounded-lg bg-[#C8B88A] px-6 py-2.5 text-sm font-semibold text-[#0A0A0A] hover:bg-[#D8C89A] transition-colors focus:outline-none focus:ring-2 focus:ring-[#C8B88A]/50 min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isSubmitting
-              ? "Saving..."
+              ? isEdit
+                ? "Saving..."
+                : "Creating..."
               : isEdit
               ? "Save Changes"
               : "Create Customer"}
@@ -369,17 +383,23 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
             <div className="flex items-center justify-end gap-3 pt-2">
               <button
                 type="button"
+                disabled={isSubmitting}
                 onClick={() => setShowDuplicateModal(false)}
-                className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-4 py-2 text-sm font-medium text-[#E8E0D4] hover:bg-[#2A2A2A] min-h-[44px]"
+                className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-4 py-2 text-sm font-medium text-[#E8E0D4] hover:bg-[#2A2A2A] min-h-[44px] disabled:opacity-50"
               >
                 Cancel / Change Phone
               </button>
               <button
                 type="button"
+                disabled={isSubmitting}
                 onClick={handleConfirmDuplicate}
-                className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 transition-colors min-h-[44px]"
+                className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 transition-colors min-h-[44px] disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isEdit ? "Confirm & Save Changes" : "Confirm & Create Customer"}
+                {isSubmitting
+                  ? "Processing..."
+                  : isEdit
+                  ? "Confirm & Save Changes"
+                  : "Confirm & Create Customer"}
               </button>
             </div>
           </div>

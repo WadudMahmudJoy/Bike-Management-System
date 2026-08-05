@@ -1,7 +1,9 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { requireAdmin } from "@/lib/auth/dal";
 import { getCustomerById } from "@/lib/customer/queries";
 import { customerIdSchema } from "@/lib/customer/validation";
+import { mapDetailToEditDTO } from "@/lib/customer/types";
 import { CustomerForm } from "@/app/admin/(protected)/customers/customer-form";
 
 export default async function EditCustomerPage({
@@ -9,6 +11,9 @@ export default async function EditCustomerPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  // Explicit server-side authorization check BEFORE resolving route parameter or querying database
+  await requireAdmin();
+
   const { id } = await params;
 
   const idParsed = customerIdSchema.safeParse(id);
@@ -21,6 +26,8 @@ export default async function EditCustomerPage({
   if (!customer) {
     notFound();
   }
+
+  const editData = mapDetailToEditDTO(customer);
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -42,7 +49,7 @@ export default async function EditCustomerPage({
         </Link>
       </div>
 
-      <CustomerForm initialData={customer} />
+      <CustomerForm initialData={editData} />
     </div>
   );
 }
