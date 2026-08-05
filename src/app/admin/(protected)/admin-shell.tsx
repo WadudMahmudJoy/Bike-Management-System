@@ -14,7 +14,7 @@ interface AdminShellProps {
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/admin/dashboard", icon: DashboardIcon, enabled: true },
   { label: "Bikes", href: "#", icon: BikeIcon, enabled: false },
-  { label: "Customers", href: "#", icon: CustomersIcon, enabled: false },
+  { label: "Customers", href: "/admin/customers", icon: CustomersIcon, enabled: true },
   { label: "Purchases", href: "#", icon: PurchaseIcon, enabled: false },
   { label: "Sales", href: "#", icon: SaleIcon, enabled: false },
   { label: "Payments & Dues", href: "#", icon: PaymentIcon, enabled: false },
