@@ -1,0 +1,15 @@
+export const SENSITIVE_ERRORS = {
+  INVALID_INPUT: "Invalid sensitive data request parameters.",
+  CUSTOMER_NOT_FOUND: "Customer record was not found.",
+  IDENTITY_NOT_FOUND: "Customer identity record was not found.",
+  BANK_ACCOUNT_NOT_FOUND: "Customer bank account record was not found.",
+  NID_ALREADY_EXISTS: "Another customer record is already associated with this National ID number.",
+  INVALID_NID_TRANSITION: "The requested National ID status transition is not permitted.",
+  CONCURRENCY_CONFLICT: "This record was updated by another administrator. Please refresh and try again.",
+  ALREADY_ARCHIVED: "This bank account is already archived.",
+  ALREADY_ACTIVE: "This bank account is already active.",
+  REAUTHENTICATION_FAILED: "Invalid password or access denied.",
+  REAUTHENTICATION_BLOCKED: "Too many failed verification attempts. Reveal access is temporarily blocked for 15 minutes.",
+  SENSITIVE_DATA_UNAVAILABLE: "Unable to process or reveal the requested sensitive record.",
+  SENSITIVE_DATA_INTEGRITY_ERROR: "Cryptographic authentication or record context verification failed.",
+} as const;
