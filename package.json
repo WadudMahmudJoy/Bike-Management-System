@@ -21,6 +21,7 @@
     "test:admin-auth": "tsx -r ./scripts/register-server-only-mock.cjs scripts/test-admin-auth.ts",
     "test:admin-cli-smoke": "tsx scripts/test-admin-cli-smoke.ts",
     "test:customers": "tsx -r ./scripts/register-server-only-mock.cjs scripts/test-customer-management.ts",
+    "test:sensitive-data": "tsx -r ./scripts/register-server-only-mock.cjs scripts/test-sensitive-data.ts",
     "admin:create": "tsx -r ./scripts/register-server-only-mock.cjs scripts/create-admin.ts",
     "db:test-integrity": "tsx scripts/test-database-integrity.ts",
     "db:studio": "prisma studio"
