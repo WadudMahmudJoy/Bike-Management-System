@@ -23,7 +23,7 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 async function runCustomerIntegrationTests() {
-  console.log("=== Phase 3A.1: Customer Management Integration Test Suite ===");
+  console.log("=== Phase 3A.2: Customer Management Integration Test Suite ===");
 
   let testFailed = false;
 
@@ -87,6 +87,14 @@ async function runCustomerIntegrationTests() {
           throw new Error("Whitespace-only optional fields were not normalized to null");
         }
 
+        // Verify createdByAdmin exposes name but excludes email
+        if (!customer1.createdByAdmin || customer1.createdByAdmin.name !== "Test Customer Admin") {
+          throw new Error("Created by admin name was not populated correctly");
+        }
+        if ("email" in (customer1.createdByAdmin as Record<string, unknown>)) {
+          throw new Error("createdByAdmin unexpectedly exposed admin email address");
+        }
+
         // Verify Customer Code shape (CUS-XXXXXXXX, Crockford Base32)
         if (!/^CUS-[0-9A-HJKMNPQRSTVWXYZ]{8}$/.test(customer1.customerCode)) {
           throw new Error(`Invalid Customer Code format: ${customer1.customerCode}`);
@@ -111,7 +119,7 @@ async function runCustomerIntegrationTests() {
           throw new Error("Customer bank account was unexpectedly created in Phase 3A");
         }
 
-        console.log("[PASS] Customer 1 Code, PENDING identity status, whitespace normalization, and zero bank accounts verified");
+        console.log("[PASS] Customer 1 Code, PENDING identity status, whitespace normalization, admin email exclusion, and zero bank accounts verified");
 
         // 4. Test Controlled Duplicate Phone Workflow
         const dupAttempt = await createCustomer(testAdminId, {
@@ -227,7 +235,7 @@ async function runCustomerIntegrationTests() {
 
         console.log("[PASS] Optimistic concurrency conflict rejection verified");
 
-        // 6. Test Bounded Search & Querying
+        // 6. Test Bounded Search & Querying with Overlong Query Safety
         const listResult = await getCustomerList({
           query: testPhone,
           limit: 20,
@@ -243,7 +251,14 @@ async function runCustomerIntegrationTests() {
           }
         });
 
-        console.log("[PASS] Bounded customer query and masked phone output verified");
+        // Test overlong search query (101 chars) does not throw and caps safely
+        const overlongQuery = "a".repeat(101);
+        const overlongRes = await getCustomerList({ query: overlongQuery, limit: 20 }, tx);
+        if (!overlongRes || typeof overlongRes.total !== "number") {
+          throw new Error("Overlong search query failed to return valid paginated result");
+        }
+
+        console.log("[PASS] Bounded customer query, overlong query safety, and masked phone output verified");
 
         // 7. Test Mandatory expectedUpdatedAt for Archive & Restore
         // Test archive with invalid timestamp

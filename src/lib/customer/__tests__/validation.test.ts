@@ -3,11 +3,12 @@ import {
   createCustomerSchema,
   updateCustomerSchema,
   customerFilterSchema,
+  parseCustomerFilters,
   customerIdSchema,
   isoTimestampSchema,
 } from "../validation";
 
-describe("Customer Validation Schemas", () => {
+describe("Customer Validation Schemas & Non-Throwing Filter Parser", () => {
   describe("customerIdSchema", () => {
     it("accepts valid UUID strings", () => {
       const valid = "10ca7005-5f02-4919-8384-8f743ad2096b";
@@ -118,33 +119,66 @@ describe("Customer Validation Schemas", () => {
     });
   });
 
-  describe("customerFilterSchema", () => {
-    it("falls back to default page 1 and limit 20 on invalid filter params without throwing", () => {
-      const result = customerFilterSchema.safeParse({ page: "invalid", limit: "invalid", role: "INVALID_ROLE" });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.page).toBe(1);
-        expect(result.data.limit).toBe(20);
-        expect(result.data.role).toBeUndefined();
-      }
+  describe("parseCustomerFilters (Non-Throwing Safety)", () => {
+    it("caps 101-character search query to 100 characters without throwing", () => {
+      const longQuery = "a".repeat(101);
+      expect(() => parseCustomerFilters({ query: longQuery })).not.toThrow();
+
+      const parsed = parseCustomerFilters({ query: longQuery });
+      expect(parsed.query).toBeDefined();
+      expect(parsed.query?.length).toBe(100);
+      expect(parsed.query).toBe("a".repeat(100));
     });
 
-    it("enforces page size cap of 100", () => {
-      const result = customerFilterSchema.safeParse({ limit: 500 });
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.limit).toBe(20); // caught and defaulted to 20
-      }
+    it("falls back to default page 1 for negative or invalid page numbers without throwing", () => {
+      expect(() => parseCustomerFilters({ page: -5 })).not.toThrow();
+      expect(parseCustomerFilters({ page: -5 }).page).toBe(1);
+
+      expect(() => parseCustomerFilters({ page: "invalid" })).not.toThrow();
+      expect(parseCustomerFilters({ page: "invalid" }).page).toBe(1);
     });
 
-    it("defaults page to 1, limit to 20, archiveFilter to active", () => {
-      const result = customerFilterSchema.safeParse({});
-      expect(result.success).toBe(true);
-      if (result.success) {
-        expect(result.data.page).toBe(1);
-        expect(result.data.limit).toBe(20);
-        expect(result.data.archiveFilter).toBe("active");
-      }
+    it("handles very large page numbers safely", () => {
+      const directResult = customerFilterSchema.safeParse({ page: 999999 });
+      expect(directResult.success).toBe(true);
+      const parsed = parseCustomerFilters({ page: 999999 });
+      expect(parsed.page).toBe(999999);
+    });
+
+    it("ignores invalid role values without throwing", () => {
+      expect(() => parseCustomerFilters({ role: "MALICIOUS_ROLE" })).not.toThrow();
+      const parsed = parseCustomerFilters({ role: "MALICIOUS_ROLE" });
+      expect(parsed.role).toBeUndefined();
+    });
+
+    it("ignores invalid NID status values without throwing", () => {
+      expect(() => parseCustomerFilters({ nidStatus: "INVALID_NID_STATUS" })).not.toThrow();
+      const parsed = parseCustomerFilters({ nidStatus: "INVALID_NID_STATUS" });
+      expect(parsed.nidStatus).toBeUndefined();
+    });
+
+    it("defaults invalid archive filter safely to 'active'", () => {
+      expect(() => parseCustomerFilters({ archiveFilter: "invalid-archive-state" })).not.toThrow();
+      const parsed = parseCustomerFilters({ archiveFilter: "invalid-archive-state" });
+      expect(parsed.archiveFilter).toBe("active");
+    });
+
+    it("defaults invalid sort order safely to 'desc'", () => {
+      expect(() => parseCustomerFilters({ sortOrder: "invalid-sort" })).not.toThrow();
+      const parsed = parseCustomerFilters({ sortOrder: "invalid-sort" });
+      expect(parsed.sortOrder).toBe("desc");
+    });
+
+    it("returns safe default filters when passed null or undefined", () => {
+      const parsedNull = parseCustomerFilters(null);
+      expect(parsedNull.page).toBe(1);
+      expect(parsedNull.limit).toBe(20);
+      expect(parsedNull.archiveFilter).toBe("active");
+      expect(parsedNull.sortOrder).toBe("desc");
+
+      const parsedUndefined = parseCustomerFilters(undefined);
+      expect(parsedUndefined.page).toBe(1);
+      expect(parsedUndefined.limit).toBe(20);
     });
   });
 });
