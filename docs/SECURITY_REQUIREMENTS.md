@@ -4,7 +4,7 @@ This document specifies the security controls, architecture, and requirements fo
 
 ---
 
-## 1. IMPLEMENTED IN PHASES 0 THROUGH 3A.1
+## 1. IMPLEMENTED IN PHASES 0 THROUGH 3A.2
 
 The following baseline security, database, customer management, and authentication controls are active in the codebase:
 
@@ -17,14 +17,17 @@ The following baseline security, database, customer management, and authenticati
 - **Strict Proxy & DAL Separation:** Edge proxy (`src/proxy.ts`) performs optimistic cookie presence checks without DB/Crypto dependencies. Real authorization occurs in Server Components via `requireAdmin()`.
 - **Interactive Owner Bootstrap CLI:** `pnpm admin:create` enforces interactive TTY execution and hidden password entry. No default credentials in seeds.
 
-### Customer Management Security & Privacy (Phase 3A & 3A.1)
+### Customer Management Security & Privacy (Phase 3A, 3A.1, & 3A.2)
+- **Explicit Page & Action Authorization:** All customer Server Actions and Server Component route pages (`list`, `new`, `detail`, `edit`) call `await requireAdmin();` before parameter resolution or database access.
 - **Phone Normalization & Masking:** Bangladesh mobile numbers are normalized to standard `+8801XXXXXXXXX` format. Non-privileged displays and list views output ONLY masked phone numbers (`+880 17***-**78`). Full numbers are visible only on detail pages for authenticated administrators.
 - **Crockford Base32 Customer Code (`CUS-XXXXXXXX`):** Customer codes are generated using 8 unambiguous Crockford Base32 characters backed by a database `@unique` constraint and 5-attempt retry loop.
 - **Controlled Duplicate-Phone Workflow:** Duplicate phones trigger a structured warning requiring explicit admin confirmation. Server re-queries duplicate IDs within the transaction and rejects submissions if the matching ID set changes.
 - **Phone-Change-Only Duplicate Checking:** Duplicate checks execute ONLY when the normalized primary phone number changes. Unchanged phone edits to name, roles, or notes proceed without requiring duplicate confirmation.
 - **Atomic Optimistic Concurrency Control:** All customer updates, archives, and restores require a valid `expectedUpdatedAt` ISO timestamp. Atomic database `updateMany` matching `id` + `updatedAt` ensures concurrent edits by another administrator produce safe `CONCURRENCY_CONFLICT` errors.
 - **Service Error Sanitization & Redaction:** All domain exceptions (PostgreSQL, Prisma, connection failures) are caught and converted to generic, safe user-facing error messages. Database error codes, table names, SQL strings, and stack traces are strictly redacted.
-- **Minimal Mutation DTO Serializing:** Server Actions return minimal result DTOs (`customerId`, `isArchived`, `updatedAt`), eliminating raw customer notes or unneeded profile data from action return payloads.
+- **Non-Throwing Filter Validation:** Malformed URL search parameters use `parseCustomerFilters(params)` with safe fallbacks and overlong query capping (max 100 chars), preventing HTTP 500 exceptions.
+- **Client Data Minimization (`CustomerEditDTO`):** Edit pages convert customer details to `CustomerEditDTO` via `mapDetailToEditDTO()`, stripping creator details, audit history, normalized phone values, NID status, and archive state from Client Component props. Creator queries exclude admin email addresses.
+- **Submission Pending Guards:** `CustomerForm` guards `handleSubmit` re-entry and disables submit/confirmation buttons while `isSubmitting` is true.
 - **Privacy Audit Redaction:** Audit logs record high-level summaries (`CUSTOMER_CREATED`, `CUSTOMER_UPDATED`, `CUSTOMER_ARCHIVED`, `CUSTOMER_RESTORED`). Contact numbers, email addresses, notes, NID, bank details, and tokens are never written to audit metadata.
 - **Zero Raw NID & Zero Bank Data Guarantee:** In Phase 3A, `CustomerIdentity` defaults to `nidStatus: PENDING` with zero raw NID numbers or images collected. Zero customer bank account records exist.
 

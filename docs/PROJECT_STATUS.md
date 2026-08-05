@@ -2,28 +2,30 @@
 
 ## Current Phase
 
-**PHASE 3A & 3A.1 — Customer Core Management, Customer Roles, Controlled Duplicate Detection, Search, Archiving, Audit History, Security Corrections, & Premium Admin UI (Completed & PR Updated)**
+**PHASE 3A, 3A.1, & 3A.2 — Customer Core Management, Customer Roles, Controlled Duplicate Detection, Search, Archiving, Audit History, Security Corrections, Data Minimization, & Premium Admin UI (Completed & PR Updated)**
 
 ## Status
 
-**Pull Request [#8](https://github.com/WadudMahmudJoy/Bike-Management-System/pull/8) updated against `main` on branch `phase-3/customer-management` (Unmerged, pending review)** — Phase 3A.1 has implemented complete security, concurrency, UI, test, error sanitization, and documentation corrections for Phase 3A.
+**Pull Request [#8](https://github.com/WadudMahmudJoy/Bike-Management-System/pull/8) updated against `main` on branch `phase-3/customer-management` (Unmerged, pending review)** — Phase 3A.2 has implemented final authorization, non-throwing filter validation, payload data minimization, and submission reliability corrections.
 
-### Key Phase 3A & 3A.1 Capabilities
-1. **Bangladesh Phone Normalization & Masking (`phone.ts`):** Standardized BD mobile numbers to `+8801XXXXXXXXX`. Masked output (`+880 17***-**78`) for list views and non-privileged displays.
-2. **Crockford Base32 Customer Code (`customer-code.ts`):** Immutable `CUS-XXXXXXXX` customer codes backed by database unique constraint and 5-attempt retry loop.
-3. **Controlled Duplicate Phone Workflow & Phone-Change-Only Check (`service.ts`, `customer-form.tsx`):** Detects existing customers sharing normalized phone. Updating existing records with unchanged phone numbers proceeds directly without duplicate confirmation. Phone changes or creates with duplicate numbers trigger a structured warning modal that rechecks matching duplicate IDs server-side on confirmation.
-4. **Mandatory Concurrency Timestamp (`expectedUpdatedAt`):** Status actions (`archiveCustomer`, `restoreCustomer`, `updateCustomer`) require a valid ISO timestamp and execute atomic database updates matching `id` + `updatedAt` + `isArchived`.
-5. **Customer Domain Error Sanitization (`service.ts`):** All database, Prisma, and connection infrastructure exceptions are caught and sanitized into safe, high-level user error messages. Raw SQL errors, constraints, and connection strings are strictly redacted.
-6. **Sequential Connection Querying (`queries.ts`):** Queries execute sequentially over database clients, completely eliminating PostgreSQL driver transaction client deprecation warnings.
-7. **Minimal Mutation Response DTOs (`types.ts`, `actions.ts`):** Server Actions return minimal result DTOs (`customerId`, `isArchived`, `updatedAt`, masked duplicate warnings), eliminating unneeded notes or full customer profile data from action return payloads.
-8. **Input & Filter Validation (`validation.ts`):** Strict Zod schemas with fallback defaults prevent HTTP 500 errors on malformed search params, and validate route UUID parameters.
-9. **Whitespace Normalization:** Optional fields (`fatherName`, `whatsappNumber`, `email`, `address`, `emergencyContact`, `internalNotes`) trim whitespace and convert empty/blank inputs to `null`.
-10. **Premium Admin UI (`/admin/customers/`):** Obsidian/Graphite visual design for list, detail, create, and edit pages with clean checkbox `onChange` handlers and mode-specific modal buttons.
-11. **Comprehensive Unit & Integration Verification:** 56 passing Vitest unit tests, 16 passing customer integration assertions with transaction rollback cleanup (`pnpm test:customers`), updated CI pipeline.
+### Key Phase 3A, 3A.1, & 3A.2 Capabilities
+1. **Explicit Route & Action Authorization:** All customer Server Actions and Server Component route pages (`list`, `new`, `detail`, `edit`) call `await requireAdmin();` before parameter resolution or database access.
+2. **Bangladesh Phone Normalization & Masking (`phone.ts`):** Standardized BD mobile numbers to `+8801XXXXXXXXX`. Masked output (`+880 17***-**78`) for list views and non-privileged displays.
+3. **Crockford Base32 Customer Code (`customer-code.ts`):** Immutable `CUS-XXXXXXXX` customer codes backed by database unique constraint and 5-attempt retry loop.
+4. **Controlled Duplicate Phone Workflow & Phone-Change Check (`service.ts`, `customer-form.tsx`):** Detects existing customers sharing normalized phone. Updating existing records with unchanged phone numbers proceeds directly without duplicate confirmation. Phone changes or creates with duplicate numbers trigger a structured warning modal that rechecks matching duplicate IDs server-side on confirmation.
+5. **Mandatory Concurrency Timestamp (`expectedUpdatedAt`):** Status actions (`archiveCustomer`, `restoreCustomer`, `updateCustomer`) require a valid ISO timestamp and execute atomic database updates matching `id` + `updatedAt` + `isArchived`.
+6. **Customer Domain Error Sanitization (`service.ts`):** All database, Prisma, and connection infrastructure exceptions are caught and sanitized into safe, high-level user error messages. Raw SQL errors, constraints, and connection strings are strictly redacted.
+7. **Non-Throwing Filter Validation (`parseCustomerFilters`):** Customer search parameters use `parseCustomerFilters(params)` with safe fallbacks and overlong query capping (max 100 chars), preventing HTTP 500 exceptions.
+8. **Client Edit Payload Minimization (`CustomerEditDTO`):** Edit pages convert customer details to `CustomerEditDTO` via `mapDetailToEditDTO()`, stripping audit history, creator details, normalized phone values, NID status, and archive state from Client Component props. Creator queries exclude admin email addresses.
+9. **Submission Pending-State Guards:** `CustomerForm` guards `handleSubmit` re-entry and disables submit/confirmation buttons while `isSubmitting` is true.
+10. **Sequential Connection Querying (`queries.ts`):** Queries execute sequentially over database clients, completely eliminating PostgreSQL driver transaction client deprecation warnings.
+11. **Whitespace Normalization:** Optional fields (`fatherName`, `whatsappNumber`, `email`, `address`, `emergencyContact`, `internalNotes`) trim whitespace and convert empty/blank inputs to `null`.
+12. **Premium Admin UI (`/admin/customers/`):** Obsidian/Graphite visual design for list, detail, create, and edit pages with clean checkbox `onChange` handlers and mode-specific modal buttons.
+13. **Comprehensive Unit & Integration Verification:** 62 passing Vitest unit tests, 16 passing customer integration assertions with transaction rollback cleanup (`pnpm test:customers`), updated CI pipeline.
 
 ---
 
-## Completed Work (Phases 0 through 3A.1)
+## Completed Work (Phases 0 through 3A.2)
 
 ### 1. Application & Tooling Foundation
 - Next.js 16.2.12 App Router initialized with TypeScript (strict mode), Tailwind CSS 4, ESLint 9, `src/` directory.
@@ -39,13 +41,13 @@
 - Implemented 27 normalized entities in `prisma/schema.prisma`, including `Customer`, `CustomerRole`, `CustomerIdentity`, `AuditLog`, `AdminUser.normalizedEmail`, and `AdminLoginThrottle`.
 
 ### 4. Database Migrations (`20260801174101_init_dealership_schema`, `20260802000215_phase1_integrity_corrections`, & `20260802042936_phase2_admin_auth_throttling`)
-- Zero schema modifications or migrations were required for Phase 3A/3A.1 as the existing PostgreSQL schema fully supports all customer core capabilities.
+- Zero schema modifications or migrations were required for Phase 3A/3A.1/3A.2 as the existing PostgreSQL schema fully supports all customer core capabilities.
 
 ### 5. Secure Admin Authentication Primitives (`src/lib/auth/`)
 - OWASP-aligned Argon2id hashing, SHA-256 session token digests (`AdminSession.sessionTokenHash`), HTTP-Only secure cookies, privacy-preserving login throttling with HMAC-SHA256 digests, pure edge proxy trust resolver (`AUTH_TRUST_PROXY`), DAL authorization (`requireAdmin()`), interactive owner bootstrap CLI (`pnpm admin:create`), and premium dark admin shell.
 
-### 6. Phase 3A & 3A.1 Customer Domain & Administration UI
-- Hardened domain service, query module, validation, audit logger, and Server Actions with strict error sanitization, atomic concurrency timestamps, minimal return DTOs, phone-change-only duplicate checks, and clean UI components.
+### 6. Phase 3A, 3A.1, & 3A.2 Customer Domain & Administration UI
+- Hardened domain service, query module, validation, audit logger, and Server Actions with strict error sanitization, explicit page authorization, non-throwing filter validation, payload data minimization, atomic concurrency timestamps, minimal return DTOs, phone-change-only duplicate checks, and clean UI components.
 
 ---
 
@@ -61,7 +63,7 @@
 | Schema Drift Check | ✅ Pass | `pnpm exec prisma migrate diff` -> 0 differences detected |
 | Idempotent Seed | ✅ Pass | `pnpm exec prisma db seed` -> Seeded twice cleanly |
 | Runtime Integrity Tests | ✅ Pass | `pnpm db:test-integrity` -> ALL 37 TESTS PASSED CLEANLY |
-| Unit Tests (Vitest) | ✅ Pass | `pnpm test` -> 56 / 56 PASSED CLEANLY |
+| Unit Tests (Vitest) | ✅ Pass | `pnpm test` -> 62 / 62 PASSED CLEANLY |
 | Admin Auth Integration Tests | ✅ Pass | `pnpm test:admin-auth` -> ALL 23 TESTS PASSED CLEANLY |
 | Admin CLI Smoke Test | ✅ Pass | `pnpm test:admin-cli-smoke` -> ALL 4 TESTS PASSED CLEANLY |
 | Customer Integration Tests | ✅ Pass | `pnpm test:customers` -> ALL PASSED CLEANLY (Zero deprecation warnings, transaction rolled back) |

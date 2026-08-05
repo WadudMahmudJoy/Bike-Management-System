@@ -1,16 +1,16 @@
 # Customer Management System Architecture & Technical Specification
 
 **Business Entity:** Sristy-Dristy Bike House (Legal: Sristy-Dristy Enterprise)  
-**Phase:** 3A & 3A.1 — Customer Core Management, Customer Roles, Controlled Duplicate Detection, Search, Archiving, Audit History, Security Corrections, and Premium Admin UI
+**Phase:** 3A, 3A.1, & 3A.2 — Customer Core Management, Customer Roles, Controlled Duplicate Detection, Search, Archiving, Audit History, Security Corrections, Data Minimization, and Premium Admin UI
 
 ---
 
 ## 1. Overview & Business Requirements
 
-Phase 3A and 3A.1 implement customer profile management for dealership operations. It enables administrators to create, update, search, filter, and archive customer business records while enforcing phone normalization, controlled duplicate handling, audit tracking, error sanitization, and optimistic concurrency protection.
+Phase 3A, 3A.1, and 3A.2 implement customer profile management for dealership operations. It enables administrators to create, update, search, filter, and archive customer business records while enforcing phone normalization, controlled duplicate handling, audit tracking, error sanitization, non-throwing filter validation, payload minimization, and optimistic concurrency protection.
 
 ### Scope Boundaries
-- **Included (Phase 3A & 3A.1):** Core profile fields, Bangladesh phone normalization (`+8801XXXXXXXXX`), multi-role assignment (`BUYER`, `SELLER`, `POTENTIAL_BUYER`, `POTENTIAL_SELLER`, `BIKE_REQUESTER`), controlled duplicate phone warnings, phone-change-only duplicate checks, server-side duplicate confirmation rechecking, mandatory concurrency timestamps (`expectedUpdatedAt`), domain error sanitization, minimal mutation response DTOs, `PENDING` NID status default, soft-archiving (`isArchived`), masked contact display in list views, full contact display in authenticated detail views, privacy-sanitized AuditLog entries, and premium dark admin UI.
+- **Included (Phase 3A, 3A.1, & 3A.2):** Core profile fields, Bangladesh phone normalization (`+8801XXXXXXXXX`), multi-role assignment (`BUYER`, `SELLER`, `POTENTIAL_BUYER`, `POTENTIAL_SELLER`, `BIKE_REQUESTER`), controlled duplicate phone warnings, phone-change-only duplicate checks, server-side duplicate confirmation rechecking, mandatory concurrency timestamps (`expectedUpdatedAt`), domain error sanitization, non-throwing filter parsing (`parseCustomerFilters`), edit payload minimization (`CustomerEditDTO`), creator admin email exclusion, `requireAdmin()` on all page routes and server actions, submission pending-state guards, `PENDING` NID status default, soft-archiving (`isArchived`), masked contact display in list views, full contact display in authenticated detail views, privacy-sanitized AuditLog entries, and premium dark admin UI.
 - **Excluded (Phase 3B & Later):** Raw NID collection, AES-256-GCM NID encryption, NID HMAC index, bank account numbers, banking document uploads, private object storage, customer login accounts (`CustomerAccount`), public customer registration, and bike/purchase/sales transactional logic.
 
 ---
@@ -73,21 +73,22 @@ if (updateResult.count !== 1) {
 
 ---
 
-## 6. Error Sanitization & Data Access Rules
+## 6. Security, Authorization, & Data Minimization Rules
 
-### Domain Error Sanitization Strategy
-- Service functions wrap all database operations in `try { ... } catch (err)` blocks.
-- Domain validation failures return explicit safe error messages (`CUSTOMER_NOT_FOUND`, `DUPLICATE_REQUIRED`, `DUPLICATE_SET_CHANGED`, `CONCURRENCY_CONFLICT`, `ALREADY_ARCHIVED`, `ALREADY_ACTIVE`, `INVALID_INPUT`).
-- Unknown database infrastructure exceptions (PostgreSQL connection resets, Prisma error codes `P2002`/`P2025`, table constraint names, SQL text) are converted to generic safe messages (`"Unable to create the customer record. Please try again."`, `"Unable to update the customer record. Please try again."`, `"Unable to change the customer status. Please try again."`).
-- Raw database stack traces, table structures, and internal details are never leaked.
+### Explicit Page & Action Authorization
+- All customer Server Actions call `requireAdmin()`.
+- Every customer route page (`/admin/customers`, `/admin/customers/new`, `/admin/customers/[id]`, `/admin/customers/[id]/edit`) calls `await requireAdmin();` before parameter parsing or database queries. Unauthenticated requests are redirected at the server component level before touching database models.
 
-### Minimal Mutation Response DTOs
-Server Actions return minimal result DTOs (`CreateCustomerResultDTO`, `UpdateCustomerResultDTO`, `ArchiveCustomerResultDTO`) containing only basic identifiers (`customerId`, `isArchived`, `updatedAt`), eliminating unneeded internal notes or sensitive profile data from mutation return values.
+### Non-Throwing Bounded Filter Parsing (`parseCustomerFilters`)
+- Customer list queries use `parseCustomerFilters(params)`.
+- Search queries over 100 characters are capped to 100 characters (`substring(0, 100)`) without throwing Zod errors.
+- Invalid page numbers default safely to 1; invalid limits cap at max 100; invalid roles, NID statuses, or archive filters fall back to safe defaults without causing HTTP 500 errors.
 
-### Server-Side Authorization Boundary
-- Every Server Action in `actions.ts` calls `requireAdmin()`.
-- Every protected route page (`page.tsx`, `new/page.tsx`, `[id]/page.tsx`, `[id]/edit/page.tsx`) calls `requireAdmin()` and validates route UUID parameters using `customerIdSchema.safeParse()`.
-- Client-provided admin IDs in `FormData` or request parameters are strictly prohibited.
+### Minimal Client Edit Payload (`CustomerEditDTO`)
+- The edit page converts `CustomerDetailDTO` to `CustomerEditDTO` via `mapDetailToEditDTO()`.
+- Unneeded client fields (`auditHistory`, `createdByAdmin`, `phoneNormalized`, `whatsappNormalized`, `nidStatus`, `isArchived`, `customerCode`) are stripped from `CustomerForm` props.
+- Creator admin queries select only `{ id, name }`, excluding email addresses.
 
-### Sequential Database Querying
-All relation sub-queries run sequentially over database connections, avoiding parallel query execution over single transaction clients and eliminating node `pg` driver deprecation warnings.
+### Submission Pending-State Protection
+- `CustomerForm` guards `handleSubmit` against re-entry while `isSubmitting` is true.
+- Both primary submit buttons and duplicate-confirmation modal buttons are disabled with pending labels (`"Creating..."`, `"Saving..."`, `"Processing..."`) during pending network requests.
