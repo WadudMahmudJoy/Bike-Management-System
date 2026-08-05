@@ -370,7 +370,7 @@ model CustomerIdentity {
   encryptedNidNumber String?   @db.Text
   encryptionIv       String?   @db.VarChar(255)
   authTag            String?   @db.VarChar(255)
-  keyVersion         Int       @default(1)
+  keyVersion         Int?
   nidNumberHmac      String?   @unique @db.VarChar(255)
   lastFour           String?   @db.VarChar(4)
   submittedAt        DateTime? @db.Timestamptz(3)
@@ -390,11 +390,11 @@ model CustomerBankAccount {
   bankName               String   @db.VarChar(255)
   accountHolderName      String   @db.VarChar(255)
   branchName             String?  @db.VarChar(255)
-  encryptedAccountNumber String?  @db.Text
-  encryptionIv           String?  @db.VarChar(255)
-  authTag                String?  @db.VarChar(255)
-  keyVersion             Int      @default(1)
-  accountNumberLastFour  String?  @db.VarChar(4)
+  encryptedAccountNumber String   @db.Text
+  encryptionIv           String   @db.VarChar(255)
+  authTag                String   @db.VarChar(255)
+  keyVersion             Int
+  accountNumberLastFour  String   @db.VarChar(4)
   routingNumber          String?  @db.VarChar(100)
   mobileBankingProvider  String?  @db.VarChar(100)
   mobileBankingNumber    String?  @db.VarChar(50)
