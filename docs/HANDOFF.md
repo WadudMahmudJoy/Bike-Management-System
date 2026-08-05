@@ -11,7 +11,7 @@ Before writing code or editing files, read these documents in full:
 1. `AGENTS.md` — Coding rules, architecture separation, financial rules, and security guidelines.
 2. `docs/HANDOFF.md` — This file (current state, exact next task, and constraints).
 3. `docs/PROJECT_STATUS.md` — Current project state and completed work.
-4. `docs/CUSTOMER_MANAGEMENT_DESIGN.md` — Authoritative Phase 3A Customer Management technical specification.
+4. `docs/CUSTOMER_MANAGEMENT_DESIGN.md` — Authoritative Phase 3A/3A.1 Customer Management technical specification.
 5. `docs/AUTHENTICATION_DESIGN.md` — Authoritative authentication architecture specification.
 6. `docs/IMPLEMENTATION_PLAN.md` — 14-phase development roadmap.
 7. `docs/ARCHITECTURE.md` — Full-stack system architecture and directory layout.
@@ -38,20 +38,20 @@ Before writing code or editing files, read these documents in full:
   - `20260802042936_phase2_admin_auth_throttling`
 - **Implemented Modules:**
   - Secure Admin Authentication Stack (Argon2id, session tokens, login throttling, logout, proxy protection, owner bootstrap CLI).
-  - Phase 3A Customer Core Management: Bangladesh phone normalization (`+8801XXXXXXXXX`), Crockford Base32 customer code generation (`CUS-XXXXXXXX`), multi-role management, controlled duplicate phone warnings, server-side confirmation recheck, default `PENDING` NID status, soft-archiving (`isArchived`), masked contact display in list views, full contact display in authenticated detail views, optimistic concurrency control, privacy-sanitized `AuditLog` entries, and premium dark admin UI for `/admin/customers`.
+  - Phase 3A & 3A.1 Customer Core Management: Bangladesh phone normalization (`+8801XXXXXXXXX`), Crockford Base32 customer code generation (`CUS-XXXXXXXX`), multi-role management, controlled duplicate phone warnings, phone-change-only duplicate detection, server-side confirmation recheck, mandatory `expectedUpdatedAt` concurrency timestamps, sanitized customer service domain errors, minimal Server Action DTOs, default `PENDING` NID status, soft-archiving (`isArchived`), masked contact display in list views, full contact display in authenticated detail views, optimistic concurrency control, privacy-sanitized `AuditLog` entries, and premium dark admin UI for `/admin/customers`.
 - **Test Suites:**
   - 37-point runtime database integrity test suite (`pnpm db:test-integrity`).
-  - 47-point Vitest unit test suite (`pnpm test`).
+  - 56-point Vitest unit test suite (`pnpm test`).
   - 23-point admin auth database integration test suite (`pnpm test:admin-auth`).
   - 4-point owner CLI non-interactive smoke test (`pnpm test:admin-cli-smoke`).
-  - Customer management integration test suite (`pnpm test:customers`).
+  - 16-point customer management integration test suite (`pnpm test:customers`).
 - **CI Pipeline:** `.github/workflows/ci.yml` includes PostgreSQL 18 service container, Prisma checks, database integrity tests, unit tests, admin auth tests, CLI smoke tests, customer tests (`pnpm test:customers`), lint, typecheck, build, and blocking audit gate.
 
 ---
 
 ## Locked Decisions & Core Constraints
 
-- **PR Pending Review:** Phase 3A Pull Request `Phase 3A: add customer core management` is created on branch `phase-3/customer-management` targeting `main`. Do not merge the PR until explicit review approval is given.
+- **PR #8 Pending Review:** Phase 3A/3A.1 Pull Request [#8](https://github.com/WadudMahmudJoy/Bike-Management-System/pull/8) `Phase 3A: add customer core management` is updated on branch `phase-3/customer-management` targeting `main`. Do not merge the PR until explicit review approval is given.
 - **Do Not Rewrite Applied Migrations:** Applied migrations in `prisma/migrations/` must never be edited.
 - **Strict Authorization:** Every server action and customer query requires `requireAdmin()` (or `getAuthorizedAdmin()`). Client-provided admin IDs are prohibited.
 - **Privacy Policy:** Full contact values, internal notes, NID numbers, bank details, and tokens must NEVER be logged to `AuditLog`, error messages, or console output.

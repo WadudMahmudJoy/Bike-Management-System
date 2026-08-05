@@ -2,15 +2,28 @@
 
 ## Current Phase
 
-**PHASE 3A — Customer Core Management, Customer Roles, Controlled Duplicate Detection, Search, Archiving, Audit History, and Premium Admin UI (Completed & PR Created)**
+**PHASE 3A & 3A.1 — Customer Core Management, Customer Roles, Controlled Duplicate Detection, Search, Archiving, Audit History, Security Corrections, & Premium Admin UI (Completed & PR Updated)**
 
 ## Status
 
-**Pull Request Created against `main` on branch `phase-3/customer-management` (Unmerged, pending review)** — Phase 3A has implemented Bangladesh phone normalization (`+8801XXXXXXXXX`), Crockford Base32 customer code generation (`CUS-XXXXXXXX`), multi-role assignment (`BUYER`, `SELLER`, `POTENTIAL_BUYER`, `POTENTIAL_SELLER`, `BIKE_REQUESTER`), controlled duplicate phone warnings, server-side duplicate confirmation rechecking, `PENDING` default NID status, soft-archiving (`isArchived`), masked contact display in list views, full contact display in authenticated detail views, optimistic concurrency control using expected `updatedAt`, privacy-sanitized `AuditLog` records, premium dark admin UI for `/admin/customers`, 20 unit tests, 13 integration test assertions (including transaction rollback verification), package script `pnpm test:customers`, and updated CI workflow.
+**Pull Request [#8](https://github.com/WadudMahmudJoy/Bike-Management-System/pull/8) updated against `main` on branch `phase-3/customer-management` (Unmerged, pending review)** — Phase 3A.1 has implemented complete security, concurrency, UI, test, error sanitization, and documentation corrections for Phase 3A.
+
+### Key Phase 3A & 3A.1 Capabilities
+1. **Bangladesh Phone Normalization & Masking (`phone.ts`):** Standardized BD mobile numbers to `+8801XXXXXXXXX`. Masked output (`+880 17***-**78`) for list views and non-privileged displays.
+2. **Crockford Base32 Customer Code (`customer-code.ts`):** Immutable `CUS-XXXXXXXX` customer codes backed by database unique constraint and 5-attempt retry loop.
+3. **Controlled Duplicate Phone Workflow & Phone-Change-Only Check (`service.ts`, `customer-form.tsx`):** Detects existing customers sharing normalized phone. Updating existing records with unchanged phone numbers proceeds directly without duplicate confirmation. Phone changes or creates with duplicate numbers trigger a structured warning modal that rechecks matching duplicate IDs server-side on confirmation.
+4. **Mandatory Concurrency Timestamp (`expectedUpdatedAt`):** Status actions (`archiveCustomer`, `restoreCustomer`, `updateCustomer`) require a valid ISO timestamp and execute atomic database updates matching `id` + `updatedAt` + `isArchived`.
+5. **Customer Domain Error Sanitization (`service.ts`):** All database, Prisma, and connection infrastructure exceptions are caught and sanitized into safe, high-level user error messages. Raw SQL errors, constraints, and connection strings are strictly redacted.
+6. **Sequential Connection Querying (`queries.ts`):** Queries execute sequentially over database clients, completely eliminating PostgreSQL driver transaction client deprecation warnings.
+7. **Minimal Mutation Response DTOs (`types.ts`, `actions.ts`):** Server Actions return minimal result DTOs (`customerId`, `isArchived`, `updatedAt`, masked duplicate warnings), eliminating unneeded notes or full customer profile data from action return payloads.
+8. **Input & Filter Validation (`validation.ts`):** Strict Zod schemas with fallback defaults prevent HTTP 500 errors on malformed search params, and validate route UUID parameters.
+9. **Whitespace Normalization:** Optional fields (`fatherName`, `whatsappNumber`, `email`, `address`, `emergencyContact`, `internalNotes`) trim whitespace and convert empty/blank inputs to `null`.
+10. **Premium Admin UI (`/admin/customers/`):** Obsidian/Graphite visual design for list, detail, create, and edit pages with clean checkbox `onChange` handlers and mode-specific modal buttons.
+11. **Comprehensive Unit & Integration Verification:** 56 passing Vitest unit tests, 16 passing customer integration assertions with transaction rollback cleanup (`pnpm test:customers`), updated CI pipeline.
 
 ---
 
-## Completed Work (Phases 0 through 3A)
+## Completed Work (Phases 0 through 3A.1)
 
 ### 1. Application & Tooling Foundation
 - Next.js 16.2.12 App Router initialized with TypeScript (strict mode), Tailwind CSS 4, ESLint 9, `src/` directory.
@@ -26,30 +39,13 @@
 - Implemented 27 normalized entities in `prisma/schema.prisma`, including `Customer`, `CustomerRole`, `CustomerIdentity`, `AuditLog`, `AdminUser.normalizedEmail`, and `AdminLoginThrottle`.
 
 ### 4. Database Migrations (`20260801174101_init_dealership_schema`, `20260802000215_phase1_integrity_corrections`, & `20260802042936_phase2_admin_auth_throttling`)
-- Zero schema modifications or migrations were required for Phase 3A as the existing PostgreSQL schema fully supports all customer core capabilities.
+- Zero schema modifications or migrations were required for Phase 3A/3A.1 as the existing PostgreSQL schema fully supports all customer core capabilities.
 
 ### 5. Secure Admin Authentication Primitives (`src/lib/auth/`)
 - OWASP-aligned Argon2id hashing, SHA-256 session token digests (`AdminSession.sessionTokenHash`), HTTP-Only secure cookies, privacy-preserving login throttling with HMAC-SHA256 digests, pure edge proxy trust resolver (`AUTH_TRUST_PROXY`), DAL authorization (`requireAdmin()`), interactive owner bootstrap CLI (`pnpm admin:create`), and premium dark admin shell.
 
-### 6. Phase 3A Customer Management Domain (`src/lib/customer/`)
-- **Phone Normalization & Masking (`phone.ts`):** Normalizes BD mobile numbers to canonical `+8801XXXXXXXXX`. Provides safe masking (`+880 17***-**78`) for list views and non-privileged displays.
-- **Customer Code Generator (`customer-code.ts`):** Produces immutable, collision-resistant codes in `CUS-XXXXXXXX` format using Crockford Base32 with database unique constraint check and 5-attempt retry loop.
-- **Controlled Duplicate-Phone Workflow (`service.ts`, `queries.ts`):** Queries existing active/archived customers sharing normalized primary phone. Returns structured warning unless confirmed. Rechecks duplicates server-side on confirmation to compare against expected duplicate ID set.
-- **Optimistic Concurrency & Archiving:** Atomic `UPDATE` queries matching `id` and `expectedUpdatedAt`. Soft-deactivation using `isArchived` flag. Hard deletion unavailable.
-- **Privacy Audit Logging (`audit.ts`):** Records non-sensitive summaries for `CUSTOMER_CREATED`, `CUSTOMER_UPDATED`, `CUSTOMER_ARCHIVED`, and `CUSTOMER_RESTORED`. Full contact details, notes, NID, bank details, and tokens are never logged.
-
-### 7. Premium Customer Administration UI (`src/app/admin/(protected)/customers/`)
-- Enabled `Customers` nav item in `admin-shell.tsx`.
-- List Page (`page.tsx`): Obsidian/Graphite design, search bar, role/NID/archive filters, clear filters, table with customer code, name, masked phone, roles, NID status badge (`PENDING`), state badge, pagination.
-- Create Page (`new/page.tsx` & `customer-form.tsx`): Form controls, multi-role checkboxes, interactive duplicate warning modal.
-- Detail Page (`[id]/page.tsx`): Customer code, profile info, full contact display for authenticated admins, `PENDING` NID status badge, creator admin info, safe audit timeline.
-- Edit Page (`[id]/edit/page.tsx`): Pre-populated form, optimistic concurrency timestamp control, duplicate phone recheck.
-- Server Actions (`actions.ts`): `'use server'` wrappers calling `requireAdmin()` and delegating server-derived admin identity to customer services.
-
-### 8. Unit & Integration Test Suites
-- **Vitest Unit Suite (`pnpm test`):** 47 passing unit tests (including 20 customer domain tests for phone normalization, masking, Crockford Base32 generator, and validation schemas).
-- **Database Integration Suite (`pnpm test:customers`):** 13 integration assertions verifying customer creation, `PENDING` identity status, zero bank accounts, controlled duplicate warning, duplicate override confirmation, distinct family shared phone records, update with role replacement, optimistic concurrency rejection, bounded search query, archive/restore, audit creation, redaction, and transaction rollback cleanup.
-- **CI Sequence (`.github/workflows/ci.yml`):** Added `pnpm test:customers` step to mandatory CI sequence.
+### 6. Phase 3A & 3A.1 Customer Domain & Administration UI
+- Hardened domain service, query module, validation, audit logger, and Server Actions with strict error sanitization, atomic concurrency timestamps, minimal return DTOs, phone-change-only duplicate checks, and clean UI components.
 
 ---
 
@@ -65,10 +61,10 @@
 | Schema Drift Check | ✅ Pass | `pnpm exec prisma migrate diff` -> 0 differences detected |
 | Idempotent Seed | ✅ Pass | `pnpm exec prisma db seed` -> Seeded twice cleanly |
 | Runtime Integrity Tests | ✅ Pass | `pnpm db:test-integrity` -> ALL 37 TESTS PASSED CLEANLY |
-| Unit Tests (Vitest) | ✅ Pass | `pnpm test` -> 47 / 47 PASSED CLEANLY |
+| Unit Tests (Vitest) | ✅ Pass | `pnpm test` -> 56 / 56 PASSED CLEANLY |
 | Admin Auth Integration Tests | ✅ Pass | `pnpm test:admin-auth` -> ALL 23 TESTS PASSED CLEANLY |
 | Admin CLI Smoke Test | ✅ Pass | `pnpm test:admin-cli-smoke` -> ALL 4 TESTS PASSED CLEANLY |
-| Customer Integration Tests | ✅ Pass | `pnpm test:customers` -> ALL PASSED CLEANLY (Transaction rolled back) |
+| Customer Integration Tests | ✅ Pass | `pnpm test:customers` -> ALL PASSED CLEANLY (Zero deprecation warnings, transaction rolled back) |
 | ESLint | ✅ Pass | `pnpm lint` -> 0 errors, 0 warnings |
 | Typecheck | ✅ Pass | `pnpm typecheck` (`tsc --noEmit`) -> 0 errors |
 | Next.js Build | ✅ Pass | `pnpm build` -> Production build clean |
@@ -82,13 +78,13 @@
 - **Branch:** `phase-3/customer-management`
 - **Base Branch:** `main`
 - **Working Tree:** Clean
-- **Pull Request:** Created against `main`, title: `Phase 3A: add customer core management` (Unmerged)
+- **Pull Request:** [#8](https://github.com/WadudMahmudJoy/Bike-Management-System/pull/8) targeting `main` (Unmerged)
 
 ---
 
 ## Phase Scope & Privacy Confirmation
 
-- **Raw NID:** ❌ Not collected or stored.
+- **Raw NID:** ❌ Not collected or stored (`nidStatus: PENDING`).
 - **Bank Details:** ❌ Not collected or stored.
 - **Customer Login:** ❌ Not created.
 - **Document Uploads:** ❌ Not implemented.

@@ -4,9 +4,9 @@ This document specifies the security controls, architecture, and requirements fo
 
 ---
 
-## 1. IMPLEMENTED IN PHASES 0 THROUGH 2
+## 1. IMPLEMENTED IN PHASES 0 THROUGH 3A.1
 
-The following baseline security, database, and authentication controls are active in the codebase:
+The following baseline security, database, customer management, and authentication controls are active in the codebase:
 
 ### Authentication & Session Security (Phase 2)
 - **Argon2id Hashing:** OWASP-aligned parameters (`memoryCost: 19456`, `timeCost: 2`, `parallelism: 1`). Plain-text passwords are never logged or stored.
@@ -16,6 +16,17 @@ The following baseline security, database, and authentication controls are activ
 - **HMAC-SHA256 Login Throttling:** `AdminLoginThrottle` keyed by HMAC-SHA256 hex digest (`normalizedEmail:clientAddress`). Stores zero raw email or IP data. Enforces 5-failure limit, 15-minute window, and 15-minute block duration.
 - **Strict Proxy & DAL Separation:** Edge proxy (`src/proxy.ts`) performs optimistic cookie presence checks without DB/Crypto dependencies. Real authorization occurs in Server Components via `requireAdmin()`.
 - **Interactive Owner Bootstrap CLI:** `pnpm admin:create` enforces interactive TTY execution and hidden password entry. No default credentials in seeds.
+
+### Customer Management Security & Privacy (Phase 3A & 3A.1)
+- **Phone Normalization & Masking:** Bangladesh mobile numbers are normalized to standard `+8801XXXXXXXXX` format. Non-privileged displays and list views output ONLY masked phone numbers (`+880 17***-**78`). Full numbers are visible only on detail pages for authenticated administrators.
+- **Crockford Base32 Customer Code (`CUS-XXXXXXXX`):** Customer codes are generated using 8 unambiguous Crockford Base32 characters backed by a database `@unique` constraint and 5-attempt retry loop.
+- **Controlled Duplicate-Phone Workflow:** Duplicate phones trigger a structured warning requiring explicit admin confirmation. Server re-queries duplicate IDs within the transaction and rejects submissions if the matching ID set changes.
+- **Phone-Change-Only Duplicate Checking:** Duplicate checks execute ONLY when the normalized primary phone number changes. Unchanged phone edits to name, roles, or notes proceed without requiring duplicate confirmation.
+- **Atomic Optimistic Concurrency Control:** All customer updates, archives, and restores require a valid `expectedUpdatedAt` ISO timestamp. Atomic database `updateMany` matching `id` + `updatedAt` ensures concurrent edits by another administrator produce safe `CONCURRENCY_CONFLICT` errors.
+- **Service Error Sanitization & Redaction:** All domain exceptions (PostgreSQL, Prisma, connection failures) are caught and converted to generic, safe user-facing error messages. Database error codes, table names, SQL strings, and stack traces are strictly redacted.
+- **Minimal Mutation DTO Serializing:** Server Actions return minimal result DTOs (`customerId`, `isArchived`, `updatedAt`), eliminating raw customer notes or unneeded profile data from action return payloads.
+- **Privacy Audit Redaction:** Audit logs record high-level summaries (`CUSTOMER_CREATED`, `CUSTOMER_UPDATED`, `CUSTOMER_ARCHIVED`, `CUSTOMER_RESTORED`). Contact numbers, email addresses, notes, NID, bank details, and tokens are never written to audit metadata.
+- **Zero Raw NID & Zero Bank Data Guarantee:** In Phase 3A, `CustomerIdentity` defaults to `nidStatus: PENDING` with zero raw NID numbers or images collected. Zero customer bank account records exist.
 
 ### Database Integrity & Engine-Level Security (Phase 1 & Phase 1.1)
 - **Database Engine Isolation:** Local PostgreSQL containerized using `postgres:18-alpine` in `compose.yaml` and bound strictly to `127.0.0.1:5434` (`localhost` loopback only). Mounts named volume at `/var/lib/postgresql`. Public binding `0.0.0.0` is strictly forbidden.
@@ -32,8 +43,8 @@ The following baseline security, database, and authentication controls are activ
 ### Blocking CI Security Gate (`.github/workflows/ci.yml`)
 - **Enforced Blocking Security Audit:** `pnpm audit --audit-level=high` runs in CI as a mandatory blocking gate.
 - **No `continue-on-error`:** `continue-on-error: true`, shell exit-code suppression (`|| true`), or blanket advisory bypasses are strictly prohibited.
-- **Root Workspace Dependency Overrides (`pnpm-workspace.yaml`):** Transitive dependency vulnerabilities in pnpm 11 are resolved via `overrides` in `pnpm-workspace.yaml` (`sharp: 0.35.3`, `postcss: 8.5.25`).
-- **CI Database Integration:** CI pipeline runs a disposable PostgreSQL 18 service container with automated migration deployment, schema drift check (`prisma migrate diff`), migration status check, double-pass seed idempotency check, runtime integrity test (`pnpm db:test-integrity`), unit auth tests (`pnpm test`), and admin auth integration tests (`pnpm test:admin-auth`).
+- **Root Workspace Dependency Overrides (`pnpm-workspace.yaml`):** Transitive dependency vulnerabilities in pnpm 11 are resolved via `overrides` in `pnpm-workspace.yaml` (`sharp: 0.35.3`, `postcss: 8.5.25`, `fast-uri: 3.1.5`).
+- **CI Database Integration:** CI pipeline runs a disposable PostgreSQL 18 service container with automated migration deployment, schema drift check (`prisma migrate diff`), migration status check, double-pass seed idempotency check, runtime integrity test (`pnpm db:test-integrity`), unit auth & customer tests (`pnpm test`), admin auth integration tests (`pnpm test:admin-auth`), and customer integration tests (`pnpm test:customers`).
 - **Environment Telemetry Disabled:** `NEXT_TELEMETRY_DISABLED: "1"` set in CI workflow.
 
 ### HTTP Response Headers (`next.config.ts`)
@@ -45,11 +56,11 @@ The following baseline security, database, and authentication controls are activ
 
 The following security controls are specified in architecture but deferred to future implementation phases:
 
-### Runtime Authenticated Encryption Services (Deferred to Phase 3)
+### Runtime Authenticated Encryption Services (Deferred to Phase 3B)
 - **AES-256-GCM Runtime Services:** Server-side encryption and decryption routines for customer NID numbers and bank account numbers.
 - **Keyed HMAC Generator:** Server-side HMAC-SHA256 generator utilizing a secret server pepper stored outside the database.
 
-### Private Object Storage & Upload Security (Deferred to Phase 3+)
+### Private Object Storage & Upload Security (Deferred to Phase 3B+)
 - **Storage Isolation & Signed URLs:** Sensitive customer documents (NID images, utility bills) stored in private object storage with short-lived signed URLs.
 
 ### Production Role Separation & Database Hardening (Deferred to Deployment Phase)
