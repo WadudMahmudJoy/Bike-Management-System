@@ -11,17 +11,18 @@ Before writing code or editing files, read these documents in full:
 1. `AGENTS.md` — Coding rules, architecture separation, financial rules, and security guidelines.
 2. `docs/HANDOFF.md` — This file (current state, exact next task, and constraints).
 3. `docs/PROJECT_STATUS.md` — Current project state and completed work.
-4. `docs/CUSTOMER_MANAGEMENT_DESIGN.md` — Authoritative Phase 3A/3A.1/3A.2 Customer Management technical specification.
-5. `docs/AUTHENTICATION_DESIGN.md` — Authoritative authentication architecture specification.
-6. `docs/IMPLEMENTATION_PLAN.md` — 14-phase development roadmap.
-7. `docs/ARCHITECTURE.md` — Full-stack system architecture and directory layout.
-8. `docs/DATABASE_DESIGN.md` — Authoritative database design specification.
-9. `docs/SECURITY_REQUIREMENTS.md` — Security baseline, planned controls, and production requirements.
-10. `docs/SEO_REQUIREMENTS.md` — SEO technical requirements and metadata rules.
-11. `docs/PRODUCT_SPEC.md` — Complete MVP feature requirements.
-12. `docs/DECISIONS.md` — Locked decisions.
-13. `docs/CUSTOMER_ACCOUNT_DECISION.md` — Customer account policy and account-linking rules.
-14. `docs/TESTING_CHECKLIST.md` — Verification checklist.
+4. `docs/SENSITIVE_DATA_ENCRYPTION_DESIGN.md` — Authoritative Phase 3B1 sensitive data encryption and security specification.
+5. `docs/CUSTOMER_MANAGEMENT_DESIGN.md` — Authoritative Customer Management technical specification.
+6. `docs/AUTHENTICATION_DESIGN.md` — Authoritative authentication architecture specification.
+7. `docs/IMPLEMENTATION_PLAN.md` — 14-phase development roadmap.
+8. `docs/ARCHITECTURE.md` — Full-stack system architecture and directory layout.
+9. `docs/DATABASE_DESIGN.md` — Authoritative database design specification.
+10. `docs/SECURITY_REQUIREMENTS.md` — Security baseline, planned controls, and production requirements.
+11. `docs/SEO_REQUIREMENTS.md` — SEO technical requirements and metadata rules.
+12. `docs/PRODUCT_SPEC.md` — Complete MVP feature requirements.
+13. `docs/DECISIONS.md` — Locked decisions.
+14. `docs/CUSTOMER_ACCOUNT_DECISION.md` — Customer account policy and account-linking rules.
+15. `docs/TESTING_CHECKLIST.md` — Verification checklist.
 
 ---
 
@@ -36,25 +37,28 @@ Before writing code or editing files, read these documents in full:
   - `20260801174101_init_dealership_schema`
   - `20260802000215_phase1_integrity_corrections`
   - `20260802042936_phase2_admin_auth_throttling`
+  - `20260805191700_phase3b1_sensitive_data_invariants`
 - **Implemented Modules:**
   - Secure Admin Authentication Stack (Argon2id, session tokens, login throttling, logout, proxy protection, owner bootstrap CLI).
-  - Phase 3A, 3A.1, & 3A.2 Customer Core Management: Bangladesh phone normalization (`+8801XXXXXXXXX`), Crockford Base32 customer code generation (`CUS-XXXXXXXX`), multi-role management, controlled duplicate phone warnings, phone-change-only duplicate detection, server-side confirmation recheck, mandatory `expectedUpdatedAt` concurrency timestamps, sanitized customer service domain errors, non-throwing filter parsing (`parseCustomerFilters`), edit payload data minimization (`CustomerEditDTO`), creator admin email exclusion, explicit `requireAdmin()` authorization on all page routes and server actions, form submission pending-state guards, default `PENDING` NID status, soft-archiving (`isArchived`), masked contact display in list views, full contact display in authenticated detail views, optimistic concurrency control, privacy-sanitized `AuditLog` entries, and premium dark admin UI for `/admin/customers`.
+  - Phase 3A Customer Core Management: Bangladesh phone normalization (`+8801XXXXXXXXX`), Crockford Base32 customer code generation (`CUS-XXXXXXXX`), multi-role management, duplicate warnings, optimistic concurrency control, and soft archiving.
+  - Phase 3B1 Encrypted Customer Identity & Bank Accounts: Versioned AES-256-GCM authenticated encryption for NID and optional bank account numbers with 12-byte random IVs and 16-byte GCM tags; pre-generated UUID AAD binding context (`bike-management-system|sensitive:v1|PURPOSE|customer:<id>|record:<id>`); independent 64-char hex HMAC-SHA256 duplicate NID lookup key (`nidNumberHmac`); strict NID lifecycle transitions (`PENDING` -> `SUBMITTED` -> `VERIFIED` / `NEEDS_CORRECTION`); password re-authenticated sensitive reveals; dual-key global per-admin reveal rate limiting (`sensitive-reveal:admin:<adminId>`); fail-closed audit logging; server-side masking (`******1234` / `******5678`); strict Zod input boundaries rejecting unrelated fields; client 30-second reveal visibility auto-clear timer & tab-hide listener; and obsidian/graphite dark UI components.
 - **Test Suites:**
-  - 37-point runtime database integrity test suite (`pnpm db:test-integrity`).
-  - 62-point Vitest unit test suite (`pnpm test`).
+  - 39-point runtime database integrity test suite (`pnpm db:test-integrity`).
+  - 104-point Vitest unit test suite (`pnpm test`).
   - 23-point admin auth database integration test suite (`pnpm test:admin-auth`).
   - 4-point owner CLI non-interactive smoke test (`pnpm test:admin-cli-smoke`).
   - 16-point customer management integration test suite (`pnpm test:customers`).
-- **CI Pipeline:** `.github/workflows/ci.yml` includes PostgreSQL 18 service container, Prisma checks, database integrity tests, unit tests, admin auth tests, CLI smoke tests, customer tests (`pnpm test:customers`), lint, typecheck, build, and blocking audit gate.
+  - 7-point sensitive data database integration test suite (`pnpm test:sensitive-data`).
+- **CI Pipeline:** `.github/workflows/ci.yml` includes PostgreSQL 18 service container, Prisma checks, database integrity tests, unit tests, admin auth tests, CLI smoke tests, customer tests, sensitive data tests (`pnpm test:sensitive-data`), lint, typecheck, build, and blocking audit gate.
 
 ---
 
 ## Locked Decisions & Core Constraints
 
-- **Phase 3A Merged into Main:** Phase 3A Customer Core Management is fully implemented and merged into `main` via PR [#8](https://github.com/WadudMahmudJoy/Bike-Management-System/pull/8) (Merge commit: `87bca0196d4f985ed5e3d7e6c062566e63f19db5`, Main CI Run: [31004263559](https://github.com/WadudMahmudJoy/Bike-Management-System/actions/runs/31004263559)). Temporary feature branch `phase-3/customer-management` has been deleted. Phase 3B has not started and requires explicit user approval.
+- **Phase 3B1 PR Ready for Security Review:** Phase 3B1 is implemented on feature branch `phase-3b1/sensitive-data-encryption` with PR targeting `main`. Do not merge PR without review.
 - **Do Not Rewrite Applied Migrations:** Applied migrations in `prisma/migrations/` must never be edited.
-- **Strict Authorization:** Every server action and customer query requires `requireAdmin()` (or `getAuthorizedAdmin()`). Client-provided admin IDs are prohibited.
-- **Privacy Policy:** Full contact values, internal notes, NID numbers, bank details, and tokens must NEVER be logged to `AuditLog`, error messages, or console output.
+- **Strict Authorization:** Every server action and query requires `requireAdmin()` (or `getAuthorizedAdmin()`). Client-provided admin IDs are prohibited.
+- **Privacy Policy:** Plaintext sensitive values (NIDs, bank account numbers), HMACs, keys, IVs, tags, or passwords must NEVER be logged to `AuditLog`, error messages, or console output.
 - **Financial Integrity:** Dynamic server-side calculation only. Append-only ledger logic. No floating-point money.
 
 ---
@@ -74,6 +78,7 @@ pnpm test
 pnpm test:admin-auth
 pnpm test:admin-cli-smoke
 pnpm test:customers
+pnpm test:sensitive-data
 pnpm lint
 pnpm typecheck
 pnpm build
@@ -84,10 +89,6 @@ git diff --check
 
 ---
 
-## Next Planned Task: Phase 3B — Customer Identity & Encryption (Deferred until explicit approval)
+## Next Planned Task: Phase 3B2 — Customer Document Storage & Verification (Deferred until approval)
 
-Phase 3B will introduce:
-1. AES-256-GCM authenticated encryption for NID numbers and bank account details.
-2. Keyed HMAC-SHA256 duplicate NID lookup index (`nidNumberHmac`).
-3. NID verification lifecycle transitions (`PENDING` -> `SUBMITTED` -> `VERIFIED`).
-4. Private object storage integration for customer identity and agreement document uploads.
+Phase 3B2 will introduce private object storage integration for customer identity documents (NID photos/scans) and agreement documents, signed access URLs, document upload security controls, and admin verification workflow.
