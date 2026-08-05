@@ -7,8 +7,9 @@ import {
   updateCustomer,
   archiveCustomer,
   restoreCustomer,
+  CUSTOMER_ERRORS,
 } from "../src/lib/customer/service";
-import { getCustomerList } from "../src/lib/customer/queries";
+import { getCustomerList, getCustomerById } from "../src/lib/customer/queries";
 import { normalizeBangladeshPhone, maskPhone } from "../src/lib/customer/phone";
 
 const connectionString = process.env.DATABASE_URL;
@@ -22,12 +23,12 @@ const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
 async function runCustomerIntegrationTests() {
-  console.log("=== Phase 3A: Customer Management Integration Test Suite ===");
+  console.log("=== Phase 3A.1: Customer Management Integration Test Suite ===");
 
   let testFailed = false;
 
   try {
-    // Run all tests inside a transaction that is rolled back at the end
+    // Run all integration tests inside a serializable transaction that is rolled back at the end
     await prisma.$transaction(
       async (tx) => {
         // 1. Setup synthetic test admin user
@@ -59,12 +60,12 @@ async function runCustomerIntegrationTests() {
 
         const testPhone = `01711${Math.floor(100000 + Math.random() * 900000)}`;
 
-        // 3. Test Customer Creation using production service within tx
+        // 3. Test Customer Creation with whitespace optional field normalization
         const createResult = await createCustomer(testAdminId, {
           fullName: "Test Customer One",
-          fatherName: "Test Father One",
+          fatherName: "   ", // whitespace only -> null
           phone: testPhone,
-          whatsappNumber: "01811112233",
+          whatsappNumber: "   ", // whitespace only -> null
           email: "customer1@test.local",
           address: "123 Test Street, Dhaka",
           emergencyContact: "Emergency: 01511112233",
@@ -76,8 +77,15 @@ async function runCustomerIntegrationTests() {
           throw new Error(`Customer 1 creation failed: ${createResult.error}`);
         }
 
-        const customer1 = createResult.data;
+        const customer1Id = createResult.data.customerId;
+        const customer1 = await getCustomerById(customer1Id, tx);
+        if (!customer1) throw new Error("Failed to retrieve created Customer 1");
+
         console.log(`[PASS] Created Customer 1: ${customer1.customerCode} (${customer1.id})`);
+
+        if (customer1.fatherName !== null || customer1.whatsappNumber !== null) {
+          throw new Error("Whitespace-only optional fields were not normalized to null");
+        }
 
         // Verify Customer Code shape (CUS-XXXXXXXX, Crockford Base32)
         if (!/^CUS-[0-9A-HJKMNPQRSTVWXYZ]{8}$/.test(customer1.customerCode)) {
@@ -103,7 +111,7 @@ async function runCustomerIntegrationTests() {
           throw new Error("Customer bank account was unexpectedly created in Phase 3A");
         }
 
-        console.log("[PASS] Customer 1 Code, PENDING identity status, and zero bank accounts verified");
+        console.log("[PASS] Customer 1 Code, PENDING identity status, whitespace normalization, and zero bank accounts verified");
 
         // 4. Test Controlled Duplicate Phone Workflow
         const dupAttempt = await createCustomer(testAdminId, {
@@ -123,7 +131,22 @@ async function runCustomerIntegrationTests() {
 
         console.log("[PASS] Controlled duplicate phone warning triggered correctly");
 
-        // Confirm duplicate creation
+        // Test mismatched expected duplicate IDs rejection
+        const mismatchDupResult = await createCustomer(testAdminId, {
+          fullName: "Test Customer Two (Shared Phone)",
+          phone: testPhone,
+          roles: ["BUYER"],
+          confirmDuplicate: true,
+          expectedDuplicateCustomerIds: ["00000000-0000-4000-a000-000000000000"], // valid UUID string but wrong ID
+        }, tx);
+
+        if (mismatchDupResult.success || mismatchDupResult.error !== CUSTOMER_ERRORS.DUPLICATE_SET_CHANGED) {
+          throw new Error("Mismatched expected duplicate ID set was not rejected with DUPLICATE_SET_CHANGED");
+        }
+
+        console.log("[PASS] Mismatched duplicate set confirmation rejection verified");
+
+        // Confirm duplicate creation with exact matching IDs
         const dupConfirmResult = await createCustomer(testAdminId, {
           fullName: "Test Customer Two (Shared Phone)",
           phone: testPhone,
@@ -136,36 +159,59 @@ async function runCustomerIntegrationTests() {
           throw new Error(`Duplicate confirmed creation failed: ${dupConfirmResult.error}`);
         }
 
-        const customer2 = dupConfirmResult.data;
+        const customer2Id = dupConfirmResult.data.customerId;
+        const customer2 = await getCustomerById(customer2Id, tx);
+        if (!customer2) throw new Error("Failed to retrieve created Customer 2");
+
         if (customer1.id === customer2.id || customer1.customerCode === customer2.customerCode) {
           throw new Error("Shared phone records failed to produce distinct customer entities");
         }
 
         console.log(`[PASS] Created Customer 2 with shared family phone: ${customer2.customerCode}`);
 
-        // 5. Test Customer Update & Optimistic Concurrency Protection
-        const updateResult = await updateCustomer(testAdminId, customer1.id, {
-          fullName: "Test Customer One Updated",
-          phone: testPhone,
+        // 5. Test Unchanged-Phone Update (Does NOT require duplicate confirmation)
+        const unchangedPhoneUpdate = await updateCustomer(testAdminId, customer1.id, {
+          fullName: "Test Customer One Updated (Name Only)",
+          phone: testPhone, // Unchanged phone
           roles: ["BUYER", "POTENTIAL_SELLER"],
           expectedUpdatedAt: customer1.updatedAt,
-          confirmDuplicate: true,
-          expectedDuplicateCustomerIds: [customer2.id],
+          confirmDuplicate: false, // Should NOT be required when phone is unchanged!
         }, tx);
 
-        if (!updateResult.success) {
-          throw new Error(`Customer update failed: ${updateResult.error}`);
+        if (!unchangedPhoneUpdate.success) {
+          throw new Error(`Unchanged phone update failed unexpectedly: ${unchangedPhoneUpdate.error}`);
         }
 
-        const updatedCustomer1 = updateResult.data;
-        if (updatedCustomer1.fullName !== "Test Customer One Updated") {
-          throw new Error("Customer name was not updated correctly");
-        }
-        if (!updatedCustomer1.roles.includes("POTENTIAL_SELLER") || updatedCustomer1.roles.includes("SELLER")) {
-          throw new Error("Customer roles were not replaced correctly");
+        const updatedCustomer1 = await getCustomerById(customer1.id, tx);
+        if (!updatedCustomer1 || updatedCustomer1.fullName !== "Test Customer One Updated (Name Only)") {
+          throw new Error("Customer name was not updated correctly on unchanged phone edit");
         }
 
-        console.log("[PASS] Customer update and role synchronization verified");
+        console.log("[PASS] Unchanged-phone update succeeded without requiring duplicate confirmation");
+
+        // Test Changing Phone to a Duplicate Phone (Requires duplicate confirmation)
+        const distinctPhone = `01811${Math.floor(100000 + Math.random() * 900000)}`;
+        const customer3Res = await createCustomer(testAdminId, {
+          fullName: "Test Customer Three",
+          phone: distinctPhone,
+          roles: ["BUYER"],
+        }, tx);
+        if (!customer3Res.success) throw new Error("Failed to create Customer 3");
+
+        // Attempt updating Customer 3's phone to testPhone (which exists on Customer 1 and 2)
+        const phoneChangeDupRes = await updateCustomer(testAdminId, customer3Res.data.customerId, {
+          fullName: "Test Customer Three",
+          phone: testPhone, // Changing to duplicate phone
+          roles: ["BUYER"],
+          expectedUpdatedAt: (await getCustomerById(customer3Res.data.customerId, tx))!.updatedAt,
+          confirmDuplicate: false,
+        }, tx);
+
+        if (phoneChangeDupRes.success || !phoneChangeDupRes.duplicateWarning?.hasDuplicates) {
+          throw new Error("Changing phone to duplicate phone did not trigger duplicate warning");
+        }
+
+        console.log("[PASS] Changing phone to duplicate phone triggered duplicate warning");
 
         // Test Stale Update Rejection (Concurrency Conflict)
         const staleUpdateResult = await updateCustomer(testAdminId, customer1.id, {
@@ -173,11 +219,9 @@ async function runCustomerIntegrationTests() {
           phone: testPhone,
           roles: ["BUYER"],
           expectedUpdatedAt: customer1.updatedAt, // Old updatedAt before previous update
-          confirmDuplicate: true,
-          expectedDuplicateCustomerIds: [customer2.id],
         }, tx);
 
-        if (staleUpdateResult.success || !staleUpdateResult.error.includes("CONCURRENCY_CONFLICT")) {
+        if (staleUpdateResult.success || staleUpdateResult.error !== CUSTOMER_ERRORS.CONCURRENCY_CONFLICT) {
           throw new Error("Stale update attempt was not rejected with CONCURRENCY_CONFLICT error");
         }
 
@@ -201,9 +245,22 @@ async function runCustomerIntegrationTests() {
 
         console.log("[PASS] Bounded customer query and masked phone output verified");
 
-        // 7. Test Customer Archive & Restore
-        const archiveRes = await archiveCustomer(testAdminId, customer2.id, customer2.updatedAt, tx);
-        if (!archiveRes.success || !archiveRes.data.isArchived) {
+        // 7. Test Mandatory expectedUpdatedAt for Archive & Restore
+        // Test archive with invalid timestamp
+        const invalidArchiveRes = await archiveCustomer(testAdminId, customer2.id, "invalid-date", tx);
+        if (invalidArchiveRes.success || invalidArchiveRes.error !== CUSTOMER_ERRORS.INVALID_TIMESTAMP) {
+          throw new Error("Archive with invalid timestamp was not rejected with INVALID_TIMESTAMP");
+        }
+
+        // Test archive with stale timestamp
+        const staleArchiveRes = await archiveCustomer(testAdminId, customer2.id, new Date(Date.now() - 3600000).toISOString(), tx);
+        if (staleArchiveRes.success || staleArchiveRes.error !== CUSTOMER_ERRORS.CONCURRENCY_CONFLICT) {
+          throw new Error("Archive with stale timestamp was not rejected with CONCURRENCY_CONFLICT");
+        }
+
+        // Test valid archive
+        const validArchiveRes = await archiveCustomer(testAdminId, customer2.id, customer2.updatedAt, tx);
+        if (!validArchiveRes.success || !validArchiveRes.data.isArchived) {
           throw new Error("Archive customer failed");
         }
 
@@ -213,17 +270,41 @@ async function runCustomerIntegrationTests() {
           throw new Error("Archived customer was not found in archived filter list");
         }
 
-        console.log("[PASS] Archive operation and archived duplicate awareness verified");
+        console.log("[PASS] Archive concurrency control and filter awareness verified");
 
-        // Restore customer
-        const restoreRes = await restoreCustomer(testAdminId, customer2.id, archiveRes.data.updatedAt, tx);
-        if (!restoreRes.success || restoreRes.data.isArchived) {
+        // Test restore with stale timestamp
+        const staleRestoreRes = await restoreCustomer(testAdminId, customer2.id, customer2.updatedAt, tx); // old updatedAt before archive
+        if (staleRestoreRes.success || staleRestoreRes.error !== CUSTOMER_ERRORS.CONCURRENCY_CONFLICT) {
+          throw new Error("Restore with stale timestamp was not rejected with CONCURRENCY_CONFLICT");
+        }
+
+        // Test valid restore
+        const validRestoreRes = await restoreCustomer(testAdminId, customer2.id, validArchiveRes.data.updatedAt, tx);
+        if (!validRestoreRes.success || validRestoreRes.data.isArchived) {
           throw new Error("Restore customer failed");
         }
 
-        console.log("[PASS] Customer restore operation verified");
+        console.log("[PASS] Restore concurrency control verified");
 
-        // 8. Test Audit Event Logging & Redaction
+        // 8. Test Invalid UUID Handling
+        const invalidIdRes = await getCustomerById("not-a-uuid", tx);
+        if (invalidIdRes !== null) {
+          throw new Error("getCustomerById returned non-null for invalid UUID string");
+        }
+
+        const invalidIdUpdate = await updateCustomer(testAdminId, "not-a-uuid", {
+          fullName: "Invalid ID Test",
+          phone: testPhone,
+          roles: ["BUYER"],
+          expectedUpdatedAt: new Date().toISOString(),
+        }, tx);
+        if (invalidIdUpdate.success || invalidIdUpdate.error !== CUSTOMER_ERRORS.NOT_FOUND) {
+          throw new Error("updateCustomer did not return NOT_FOUND for invalid UUID");
+        }
+
+        console.log("[PASS] Invalid UUID input validation verified");
+
+        // 9. Test Audit Event Logging & Redaction
         const auditLogs = await tx.auditLog.findMany({
           where: {
             entityType: "Customer",
@@ -248,7 +329,7 @@ async function runCustomerIntegrationTests() {
 
         console.log("[PASS] Audit log creation and privacy redaction verified");
 
-        // 9. Test Unauthorized Access Protection
+        // 10. Test Unauthorized Access Protection
         const unauthCreate = await createCustomer("", {
           fullName: "Unauthorized Customer",
           phone: "01799998888",
@@ -277,16 +358,16 @@ async function runCustomerIntegrationTests() {
     } else {
       testFailed = true;
       process.exitCode = 1;
-      console.error("\n❌ Customer Integration Test Failed:", err instanceof Error ? err.message : err);
+      console.error("\n[FAIL] Customer Integration Test Failed:", err instanceof Error ? err.message : err);
     }
   } finally {
     await prisma.$disconnect();
     await pool.end();
 
     if (!testFailed && process.exitCode !== 1) {
-      console.log("\n✅ Customer Management Integration Test Suite PASSED CLEANLY!\n");
+      console.log("\n[PASS] Customer Management Integration Test Suite PASSED CLEANLY!\n");
     } else {
-      console.error(`\n❌ Test suite failed with exitCode: ${process.exitCode}\n`);
+      console.error(`\n[FAIL] Test suite failed with exitCode: ${process.exitCode}\n`);
       process.exit(1);
     }
   }
