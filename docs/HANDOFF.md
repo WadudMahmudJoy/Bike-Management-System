@@ -31,7 +31,7 @@ Before writing code or editing files, read these documents in full:
 - **Language & Styling:** Strict TypeScript (`tsconfig.json`), Tailwind CSS 4 (`globals.css`).
 - **Database & ORM:** PostgreSQL 18 & Prisma 7 (`@prisma/adapter-pg` & `pg.Pool`).
 - **Container Environment:** Local PostgreSQL 18 containerized in `compose.yaml` (`bike-postgres`), bound strictly to `127.0.0.1:5434`.
-- **Implemented Database Schema:** 27 business entities and 25 enum groups in `prisma/schema.prisma`.
+- **Implemented Database Schema:** 27 normalized entities in `prisma/schema.prisma`.
 - **Applied Migrations:**
   - `20260801174101_init_dealership_schema`
   - `20260802000215_phase1_integrity_corrections`
@@ -51,7 +51,7 @@ Before writing code or editing files, read these documents in full:
 
 ## Locked Decisions & Core Constraints
 
-- **PR #8 Pending Review:** Phase 3A/3A.1/3A.2 Pull Request [#8](https://github.com/WadudMahmudJoy/Bike-Management-System/pull/8) `Phase 3A: add customer core management` is updated on branch `phase-3/customer-management` targeting `main`. Do not merge the PR until explicit review approval is given.
+- **Phase 3A Merged into Main:** Phase 3A Customer Core Management is fully implemented and merged into `main` via PR [#8](https://github.com/WadudMahmudJoy/Bike-Management-System/pull/8) (Merge commit: `87bca0196d4f985ed5e3d7e6c062566e63f19db5`, Main CI Run: [31004263559](https://github.com/WadudMahmudJoy/Bike-Management-System/actions/runs/31004263559)). Temporary feature branch `phase-3/customer-management` has been deleted. Phase 3B has not started and requires explicit user approval.
 - **Do Not Rewrite Applied Migrations:** Applied migrations in `prisma/migrations/` must never be edited.
 - **Strict Authorization:** Every server action and customer query requires `requireAdmin()` (or `getAuthorizedAdmin()`). Client-provided admin IDs are prohibited.
 - **Privacy Policy:** Full contact values, internal notes, NID numbers, bank details, and tokens must NEVER be logged to `AuditLog`, error messages, or console output.
@@ -84,7 +84,7 @@ git diff --check
 
 ---
 
-## Next Planned Task: Phase 3B — Customer Identity & Encryption (Deferred until approval)
+## Next Planned Task: Phase 3B — Customer Identity & Encryption (Deferred until explicit approval)
 
 Phase 3B will introduce:
 1. AES-256-GCM authenticated encryption for NID numbers and bank account details.

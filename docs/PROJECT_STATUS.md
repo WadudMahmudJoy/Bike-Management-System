@@ -2,11 +2,11 @@
 
 ## Current Phase
 
-**PHASE 3A, 3A.1, & 3A.2 — Customer Core Management, Customer Roles, Controlled Duplicate Detection, Search, Archiving, Audit History, Security Corrections, Data Minimization, & Premium Admin UI (Completed & PR Updated)**
+**PHASE 3A, 3A.1, & 3A.2 — Customer Core Management, Customer Roles, Controlled Duplicate Detection, Search, Archiving, Audit History, Security Corrections, Data Minimization, & Premium Admin UI (Completed & Merged)**
 
 ## Status
 
-**Pull Request [#8](https://github.com/WadudMahmudJoy/Bike-Management-System/pull/8) updated against `main` on branch `phase-3/customer-management` (Unmerged, pending review)** — Phase 3A.2 has implemented final authorization, non-throwing filter validation, payload data minimization, and submission reliability corrections.
+**Phase 3A Customer Core Management is complete and merged into `main`** via Pull Request [#8](https://github.com/WadudMahmudJoy/Bike-Management-System/pull/8) (Merge Commit: `87bca0196d4f985ed5e3d7e6c062566e63f19db5`, Main CI Run: [31004263559](https://github.com/WadudMahmudJoy/Bike-Management-System/actions/runs/31004263559) passed cleanly). Temporary feature branch `phase-3/customer-management` has been closed and deleted. Phase 3B has not started and requires explicit user approval.
 
 ### Key Phase 3A, 3A.1, & 3A.2 Capabilities
 1. **Explicit Route & Action Authorization:** All customer Server Actions and Server Component route pages (`list`, `new`, `detail`, `edit`) call `await requireAdmin();` before parameter resolution or database access.
@@ -77,10 +77,10 @@
 
 ## Current Branch & Git State
 
-- **Branch:** `phase-3/customer-management`
-- **Base Branch:** `main`
+- **Branch:** `main`
 - **Working Tree:** Clean
-- **Pull Request:** [#8](https://github.com/WadudMahmudJoy/Bike-Management-System/pull/8) targeting `main` (Unmerged)
+- **Pull Request:** [#8](https://github.com/WadudMahmudJoy/Bike-Management-System/pull/8) Merged into `main` (`87bca0196d4f985ed5e3d7e6c062566e63f19db5`)
+- **Main CI Run:** [#31004263559](https://github.com/WadudMahmudJoy/Bike-Management-System/actions/runs/31004263559) Passed
 
 ---
 
@@ -90,5 +90,5 @@
 - **Bank Details:** ❌ Not collected or stored.
 - **Customer Login:** ❌ Not created.
 - **Document Uploads:** ❌ Not implemented.
-- **PR Status:** ❌ Not merged (awaiting review).
-- **Phase 3B:** ❌ Not started.
+- **PR Status:** ✅ Merged into `main`.
+- **Phase 3B:** ❌ Not started (requires explicit user approval).
