@@ -54,7 +54,8 @@ This document logs all authoritative architectural and product decisions for the
 - **Decision:** The database `AdminSession` record stores a SHA-256 hash of the session token (`sessionTokenHash`).
 
 ### 2026-08-01: Root Workspace Overrides for pnpm 11 (`pnpm-workspace.yaml`)
-- **Decision:** Move all transitive dependency overrides (`sharp: 0.35.3`, `postcss: 8.5.25`) to `pnpm-workspace.yaml`.
+- **Decision:** Move all transitive dependency overrides (`sharp: 0.35.3`, `postcss: 8.5.25`, `fast-uri: 3.1.5`) to `pnpm-workspace.yaml`.
+- **Rationale:** Resolves security audit vulnerabilities (`fast-uri` <3.1.5 host confusion) in transitive dependencies without adding unneeded direct dependencies to `package.json`.
 
 ### 2026-08-01: Mandatory Blocking CI Security Audit Gate
 - **Decision:** `pnpm audit --audit-level=high` runs as a mandatory blocking step in `.github/workflows/ci.yml`. `continue-on-error: true` is strictly prohibited.
@@ -102,3 +103,28 @@ This document logs all authoritative architectural and product decisions for the
 ### 2026-08-02: Interactive Bootstrap CLI (`pnpm admin:create`)
 - **Decision:** First administrator account creation requires explicit interactive TTY invocation via `pnpm admin:create` (`scripts/create-admin.ts`) with hidden password input. Automatic seeding of default credentials in `prisma/seed.ts` is strictly prohibited.
 - **Rationale:** Prevents default credential vulnerabilities in production environments.
+
+---
+
+## Phase 3A & 3A.1 Customer Core Management Decisions (2026-08-05)
+
+### 2026-08-05: Bangladesh Phone Normalization and Masking Standard
+- **Decision:** All primary customer phone numbers are normalized to standard `+8801XXXXXXXXX` format. Non-privileged displays and list views output ONLY masked phone numbers (`+880 17***-**78`). Full phone numbers are visible only on detail pages for authenticated administrators.
+
+### 2026-08-05: Crockford Base32 Customer Code (`CUS-XXXXXXXX`)
+- **Decision:** Generate immutable customer codes in `CUS-XXXXXXXX` format using 8 Crockford Base32 characters backed by a database `@unique` constraint and 5-attempt retry loop.
+
+### 2026-08-05: Controlled Duplicate Phone Workflow & Phone-Change-Only Check
+- **Decision:** Phone numbers are not globally unique. When updating a customer, duplicate checking runs ONLY if the normalized primary phone has changed. Updating other fields (name, address, roles, notes) on a shared-phone record proceeds directly without requiring duplicate confirmation. When the phone changes or during creation, duplicates trigger a structured warning that re-verifies matching duplicate IDs server-side on submission.
+
+### 2026-08-05: Mandatory Concurrency Timestamp (`expectedUpdatedAt`) for Archive & Status Actions
+- **Decision:** Status change functions (`archiveCustomer`, `restoreCustomer`, `updateCustomer`) require a valid ISO `expectedUpdatedAt` timestamp parameter and execute atomic `updateMany` matching `id` + `updatedAt` + `isArchived`.
+
+### 2026-08-05: Customer Domain Error Sanitization & Redaction
+- **Decision:** Domain service layer catches all database infrastructure exceptions (Postgres, Prisma, connection resets) and sanitizes them into safe, high-level user error messages. Raw SQL errors, table constraints, and connection strings are strictly redacted.
+
+### 2026-08-05: Minimal Server Action Mutation DTOs
+- **Decision:** Server Actions return lightweight result DTOs containing only necessary metadata (`customerId`, `isArchived`, `updatedAt`, masked duplicate warnings), eliminating full customer profiles or sensitive notes from mutation return values.
+
+### 2026-08-05: Transitive Dependency Override Rationale (`fast-uri: 3.1.5`)
+- **Decision:** Maintain `fast-uri: 3.1.5` under `overrides` in `pnpm-workspace.yaml` to patch CVE-2024-45296 (host confusion / ReDoS) in transitive package `@prisma/dev > @prisma/streams-local > ajv > fast-uri`.
