@@ -97,6 +97,9 @@ jobs:
       - name: Run Admin CLI Smoke Test
         run: pnpm test:admin-cli-smoke
 
+      - name: Run Customer Management Integration Tests
+        run: pnpm test:customers
+
       - name: Run ESLint
         run: pnpm lint
 
