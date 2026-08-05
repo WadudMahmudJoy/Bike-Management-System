@@ -1,27 +1,29 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { maskPhone, normalizeBangladeshPhone } from "./phone";
-import { customerFilterSchema } from "./validation";
+import { customerFilterSchema, customerIdSchema } from "./validation";
 import type {
   CustomerFilterParams,
   CustomerListItemDTO,
   CustomerDetailDTO,
-  DuplicateCheckResult,
+  DuplicateWarningDTO,
   MatchingCustomerDTO,
   PaginatedCustomersResult,
 } from "./types";
-import type { Prisma } from "@/generated/prisma/client";
+import type { CustomerRoleType, NidStatus, Prisma } from "@/generated/prisma/client";
+
+type TxClient = Parameters<Parameters<typeof prisma.$transaction>[0]>[0];
 
 /**
  * Checks for existing active or archived customers sharing the same normalized primary phone.
  * Masked phone is returned in matching customers for UX display.
- * Accepts optional transaction client.
+ * Executes queries sequentially to avoid transaction client concurrency warnings.
  */
 export async function checkDuplicatePhone(
   phoneNormalized: string,
   excludeCustomerId?: string,
-  tx?: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
-): Promise<DuplicateCheckResult> {
+  tx?: TxClient
+): Promise<DuplicateWarningDTO> {
   const client = tx ?? prisma;
 
   if (!phoneNormalized) {
@@ -33,8 +35,12 @@ export async function checkDuplicatePhone(
       phoneNormalized,
       ...(excludeCustomerId ? { id: { not: excludeCustomerId } } : {}),
     },
-    include: {
-      roles: { select: { role: true } },
+    select: {
+      id: true,
+      customerCode: true,
+      fullName: true,
+      phone: true,
+      isArchived: true,
     },
     orderBy: { createdAt: "desc" },
   });
@@ -43,12 +49,25 @@ export async function checkDuplicatePhone(
     return { hasDuplicates: false, matchingCustomers: [], duplicateCustomerIds: [] };
   }
 
+  const matchIds = matches.map((m) => m.id);
+  const rolesRecords = await client.customerRole.findMany({
+    where: { customerId: { in: matchIds } },
+    select: { customerId: true, role: true },
+  });
+
+  const rolesMap = new Map<string, CustomerRoleType[]>();
+  rolesRecords.forEach((r) => {
+    const list = rolesMap.get(r.customerId) ?? [];
+    list.push(r.role);
+    rolesMap.set(r.customerId, list);
+  });
+
   const matchingCustomers: MatchingCustomerDTO[] = matches.map((c) => ({
     id: c.id,
     customerCode: c.customerCode ?? c.id.substring(0, 8),
     fullName: c.fullName,
     maskedPhone: maskPhone(c.phone),
-    roles: c.roles.map((r) => r.role),
+    roles: rolesMap.get(c.id) ?? [],
     isArchived: c.isArchived,
   }));
 
@@ -63,10 +82,11 @@ export async function checkDuplicatePhone(
  * Bounded paginated search and list query for customers.
  * Defaults to page size 20, max 100.
  * List view exposes ONLY masked phone numbers.
+ * Sequential execution avoids PostgreSQL driver deprecation warnings on shared transaction connection clients.
  */
 export async function getCustomerList(
   params: CustomerFilterParams,
-  tx?: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
+  tx?: TxClient
 ): Promise<PaginatedCustomersResult> {
   const client = tx ?? prisma;
   const parsed = customerFilterSchema.parse(params);
@@ -116,30 +136,57 @@ export async function getCustomerList(
     whereClause.OR = searchConditions;
   }
 
-  const [total, customers] = await Promise.all([
-    client.customer.count({ where: whereClause }),
-    client.customer.findMany({
-      where: whereClause,
-      include: {
-        roles: { select: { role: true } },
-        identity: { select: { nidStatus: true } },
-      },
-      orderBy: [
-        { createdAt: sortOrder },
-        { id: "desc" },
-      ],
-      skip: (page - 1) * limit,
-      take: limit,
-    }),
-  ]);
+  // Execute queries sequentially to prevent parallel execution over single transaction client
+  const total = await client.customer.count({ where: whereClause });
+  const customers = await client.customer.findMany({
+    where: whereClause,
+    select: {
+      id: true,
+      customerCode: true,
+      fullName: true,
+      phone: true,
+      isArchived: true,
+      createdAt: true,
+    },
+    orderBy: [
+      { createdAt: sortOrder },
+      { id: "desc" },
+    ],
+    skip: (page - 1) * limit,
+    take: limit,
+  });
+
+  const customerIds = customers.map((c) => c.id);
+
+  const rolesRecords = await client.customerRole.findMany({
+    where: { customerId: { in: customerIds } },
+    select: { customerId: true, role: true },
+  });
+
+  const identityRecords = await client.customerIdentity.findMany({
+    where: { customerId: { in: customerIds } },
+    select: { customerId: true, nidStatus: true },
+  });
+
+  const rolesMap = new Map<string, CustomerRoleType[]>();
+  rolesRecords.forEach((r) => {
+    const list = rolesMap.get(r.customerId) ?? [];
+    list.push(r.role);
+    rolesMap.set(r.customerId, list);
+  });
+
+  const identityMap = new Map<string, string>();
+  identityRecords.forEach((i) => {
+    identityMap.set(i.customerId, i.nidStatus);
+  });
 
   const items: CustomerListItemDTO[] = customers.map((c) => ({
     id: c.id,
     customerCode: c.customerCode ?? c.id.substring(0, 8),
     fullName: c.fullName,
     maskedPhone: maskPhone(c.phone),
-    roles: c.roles.map((r) => r.role),
-    nidStatus: c.identity?.nidStatus ?? "PENDING",
+    roles: rolesMap.get(c.id) ?? [],
+    nidStatus: (identityMap.get(c.id) as NidStatus) ?? "PENDING",
     isArchived: c.isArchived,
     createdAt: c.createdAt.toISOString(),
   }));
@@ -156,25 +203,53 @@ export async function getCustomerList(
 /**
  * Retrieves full customer detail by ID for authorized operational views.
  * Exposes full contact information to authenticated admins only.
+ * Sequential execution avoids PostgreSQL driver deprecation warnings on shared connection clients.
  */
 export async function getCustomerById(
   id: string,
-  tx?: Parameters<Parameters<typeof prisma.$transaction>[0]>[0]
+  tx?: TxClient
 ): Promise<CustomerDetailDTO | null> {
+  const idParsed = customerIdSchema.safeParse(id);
+  if (!idParsed.success) {
+    return null;
+  }
+
   const client = tx ?? prisma;
 
   const customer = await client.customer.findUnique({
     where: { id },
-    include: {
-      roles: { select: { role: true } },
-      identity: { select: { nidStatus: true } },
+    select: {
+      id: true,
+      customerCode: true,
+      fullName: true,
+      fatherName: true,
+      phone: true,
+      phoneNormalized: true,
+      whatsappNumber: true,
+      whatsappNormalized: true,
+      email: true,
+      address: true,
+      emergencyContact: true,
+      internalNotes: true,
+      isArchived: true,
+      createdAt: true,
+      updatedAt: true,
       createdByAdmin: { select: { id: true, name: true, email: true } },
     },
   });
 
   if (!customer) return null;
 
-  // Fetch safe audit history for this customer
+  const rolesRecords = await client.customerRole.findMany({
+    where: { customerId: id },
+    select: { role: true },
+  });
+
+  const identityRecord = await client.customerIdentity.findUnique({
+    where: { customerId: id },
+    select: { nidStatus: true },
+  });
+
   const auditLogs = await client.auditLog.findMany({
     where: {
       entityType: "Customer",
@@ -224,8 +299,8 @@ export async function getCustomerById(
     internalNotes: customer.internalNotes,
     isArchived: customer.isArchived,
     createdByAdmin: customer.createdByAdmin,
-    roles: customer.roles.map((r) => r.role),
-    nidStatus: customer.identity?.nidStatus ?? "PENDING",
+    roles: rolesRecords.map((r) => r.role),
+    nidStatus: identityRecord?.nidStatus ?? "PENDING",
     createdAt: customer.createdAt.toISOString(),
     updatedAt: customer.updatedAt.toISOString(),
     auditHistory,

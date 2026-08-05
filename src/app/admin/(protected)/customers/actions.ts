@@ -12,7 +12,9 @@ import {
 import type {
   CreateCustomerInput,
   UpdateCustomerInput,
-  CustomerDetailDTO,
+  CreateCustomerResultDTO,
+  UpdateCustomerResultDTO,
+  ArchiveCustomerResultDTO,
 } from "@/lib/customer/types";
 
 /**
@@ -21,7 +23,7 @@ import type {
  */
 export async function createCustomerAction(
   input: CreateCustomerInput
-): Promise<ServiceResult<CustomerDetailDTO>> {
+): Promise<ServiceResult<CreateCustomerResultDTO>> {
   const admin = await requireAdmin();
 
   const result = await createCustomer(admin.id, input);
@@ -40,7 +42,7 @@ export async function createCustomerAction(
 export async function updateCustomerAction(
   id: string,
   input: UpdateCustomerInput
-): Promise<ServiceResult<CustomerDetailDTO>> {
+): Promise<ServiceResult<UpdateCustomerResultDTO>> {
   const admin = await requireAdmin();
 
   const result = await updateCustomer(admin.id, id, input);
@@ -56,11 +58,12 @@ export async function updateCustomerAction(
 
 /**
  * Server action to archive (deactivate) a customer.
+ * Requires a valid expectedUpdatedAt timestamp for atomic concurrency.
  */
 export async function archiveCustomerAction(
   id: string,
-  expectedUpdatedAt?: string
-): Promise<ServiceResult<CustomerDetailDTO>> {
+  expectedUpdatedAt: string
+): Promise<ServiceResult<ArchiveCustomerResultDTO>> {
   const admin = await requireAdmin();
 
   const result = await archiveCustomer(admin.id, id, expectedUpdatedAt);
@@ -75,11 +78,12 @@ export async function archiveCustomerAction(
 
 /**
  * Server action to restore (reactivate) an archived customer.
+ * Requires a valid expectedUpdatedAt timestamp for atomic concurrency.
  */
 export async function restoreCustomerAction(
   id: string,
-  expectedUpdatedAt?: string
-): Promise<ServiceResult<CustomerDetailDTO>> {
+  expectedUpdatedAt: string
+): Promise<ServiceResult<ArchiveCustomerResultDTO>> {
   const admin = await requireAdmin();
 
   const result = await restoreCustomer(admin.id, id, expectedUpdatedAt);

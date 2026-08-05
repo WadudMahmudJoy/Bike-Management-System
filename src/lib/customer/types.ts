@@ -2,25 +2,6 @@ import type { CustomerRoleType, NidStatus } from "@/generated/prisma/client";
 
 export type { CustomerRoleType, NidStatus };
 
-export interface CustomerDTO {
-  id: string;
-  customerCode: string;
-  fullName: string;
-  fatherName: string | null;
-  phone: string;
-  phoneNormalized: string;
-  whatsappNumber: string | null;
-  whatsappNormalized: string | null;
-  email: string | null;
-  address: string | null;
-  emergencyContact: string | null;
-  internalNotes: string | null;
-  isArchived: boolean;
-  createdByAdminId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface CustomerListItemDTO {
   id: string;
   customerCode: string;
@@ -76,7 +57,7 @@ export interface MatchingCustomerDTO {
   isArchived: boolean;
 }
 
-export interface DuplicateCheckResult {
+export interface DuplicateWarningDTO {
   hasDuplicates: boolean;
   matchingCustomers: MatchingCustomerDTO[];
   duplicateCustomerIds: string[];
@@ -109,6 +90,21 @@ export interface UpdateCustomerInput {
   expectedUpdatedAt: string;
   confirmDuplicate?: boolean;
   expectedDuplicateCustomerIds?: string[];
+}
+
+export interface CreateCustomerResultDTO {
+  customerId: string;
+}
+
+export interface UpdateCustomerResultDTO {
+  customerId: string;
+  updatedAt: string;
+}
+
+export interface ArchiveCustomerResultDTO {
+  customerId: string;
+  isArchived: boolean;
+  updatedAt: string;
 }
 
 export interface CustomerFilterParams {
