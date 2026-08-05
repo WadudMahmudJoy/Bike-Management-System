@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { requireAdmin } from "@/lib/auth/dal";
 import { getCustomerById } from "@/lib/customer/queries";
 import { customerIdSchema } from "@/lib/customer/validation";
 import { ArchiveToggleButton } from "./archive-toggle-button";
@@ -9,6 +10,9 @@ export default async function CustomerDetailPage({
 }: {
   params: Promise<{ id: string }>;
 }) {
+  // Explicit server-side authorization check BEFORE resolving route parameter or querying database
+  await requireAdmin();
+
   const { id } = await params;
 
   const idParsed = customerIdSchema.safeParse(id);

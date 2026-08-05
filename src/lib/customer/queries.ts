@@ -1,7 +1,7 @@
 import "server-only";
 import { prisma } from "@/lib/prisma";
 import { maskPhone, normalizeBangladeshPhone } from "./phone";
-import { customerFilterSchema, customerIdSchema } from "./validation";
+import { customerIdSchema, parseCustomerFilters } from "./validation";
 import type {
   CustomerFilterParams,
   CustomerListItemDTO,
@@ -80,6 +80,7 @@ export async function checkDuplicatePhone(
 
 /**
  * Bounded paginated search and list query for customers.
+ * Uses non-throwing parseCustomerFilters to handle malformed query params safely.
  * Defaults to page size 20, max 100.
  * List view exposes ONLY masked phone numbers.
  * Sequential execution avoids PostgreSQL driver deprecation warnings on shared transaction connection clients.
@@ -89,8 +90,10 @@ export async function getCustomerList(
   tx?: TxClient
 ): Promise<PaginatedCustomersResult> {
   const client = tx ?? prisma;
-  const parsed = customerFilterSchema.parse(params);
-  const { page, limit, query, role, nidStatus, archiveFilter, sortOrder } = parsed;
+  const parsed = parseCustomerFilters(params);
+  const page = parsed.page ?? 1;
+  const limit = parsed.limit ?? 20;
+  const { query, role, nidStatus, archiveFilter, sortOrder } = parsed;
 
   const whereClause: Prisma.CustomerWhereInput = {};
 
@@ -203,6 +206,7 @@ export async function getCustomerList(
 /**
  * Retrieves full customer detail by ID for authorized operational views.
  * Exposes full contact information to authenticated admins only.
+ * Creator admin email is excluded as it is not displayed on operational pages.
  * Sequential execution avoids PostgreSQL driver deprecation warnings on shared connection clients.
  */
 export async function getCustomerById(
@@ -234,7 +238,7 @@ export async function getCustomerById(
       isArchived: true,
       createdAt: true,
       updatedAt: true,
-      createdByAdmin: { select: { id: true, name: true, email: true } },
+      createdByAdmin: { select: { id: true, name: true } },
     },
   });
 

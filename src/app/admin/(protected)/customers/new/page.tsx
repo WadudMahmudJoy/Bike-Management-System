@@ -1,32 +1,29 @@
-import { Metadata } from "next";
 import Link from "next/link";
 import { requireAdmin } from "@/lib/auth/dal";
 import { CustomerForm } from "../customer-form";
 
-export const metadata: Metadata = {
-  title: "Add Customer | Admin Dashboard",
-  robots: { index: false, follow: false, noarchive: true },
-};
-
 export default async function NewCustomerPage() {
+  // Explicit server-side authorization check
   await requireAdmin();
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
-      {/* Top breadcrumb navigation */}
-      <div className="flex items-center gap-2 text-xs text-[#E8E0D4]/60">
-        <Link href="/admin/customers" className="hover:text-[#F5F0E8] transition-colors">
-          Customers
-        </Link>
-        <span>/</span>
-        <span className="text-[#C8B88A]">New Customer</span>
-      </div>
+    <div className="space-y-6 max-w-4xl mx-auto">
+      <div className="flex items-center justify-between border-b border-[#2A2A2A] pb-4">
+        <div>
+          <h1 className="text-2xl font-bold tracking-tight text-[#F5F0E8]">
+            Create New Customer Record
+          </h1>
+          <p className="text-xs text-[#E8E0D4]/60 mt-1">
+            Add a new buyer, seller, or potential client to the dealership directory.
+          </p>
+        </div>
 
-      <div>
-        <h1 className="text-2xl font-bold text-[#F5F0E8] tracking-tight">Add New Customer</h1>
-        <p className="text-sm text-[#E8E0D4]/70 mt-1">
-          Create a new customer profile and assign business roles
-        </p>
+        <Link
+          href="/admin/customers"
+          className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-4 py-2 text-sm font-medium text-[#E8E0D4]/80 hover:text-[#F5F0E8] hover:bg-[#2A2A2A] transition-colors min-h-[44px] flex items-center"
+        >
+          ← Cancel
+        </Link>
       </div>
 
       <CustomerForm />

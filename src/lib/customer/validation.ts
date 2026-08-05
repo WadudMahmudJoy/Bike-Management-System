@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { CustomerRoleType, NidStatus } from "@/generated/prisma/client";
 import { bdPhoneSchema, optionalBdPhoneSchema } from "./phone";
+import type { CustomerFilterParams } from "./types";
 
 export const customerRoleEnum = z.nativeEnum(CustomerRoleType);
 
@@ -88,11 +89,24 @@ export const customerFilterSchema = z.object({
   query: z
     .string()
     .trim()
-    .max(100, "Search query must be 100 characters or less")
+    .transform((val) => (val === "" ? undefined : val.length > 100 ? val.substring(0, 100) : val))
     .optional()
-    .transform((val) => (val === "" ? undefined : val)),
+    .catch(undefined),
   role: z.nativeEnum(CustomerRoleType).optional().catch(undefined),
   nidStatus: z.nativeEnum(NidStatus).optional().catch(undefined),
   archiveFilter: z.enum(["active", "archived", "all"]).optional().catch("active").default("active"),
   sortOrder: z.enum(["desc", "asc"]).optional().catch("desc").default("desc"),
 });
+
+export function parseCustomerFilters(params: unknown): CustomerFilterParams {
+  const result = customerFilterSchema.safeParse(params ?? {});
+  if (result.success) {
+    return result.data;
+  }
+  return {
+    page: 1,
+    limit: 20,
+    archiveFilter: "active",
+    sortOrder: "desc",
+  };
+}
