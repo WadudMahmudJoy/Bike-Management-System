@@ -4,6 +4,9 @@ import { requireAdmin } from "@/lib/auth/dal";
 import { getCustomerById } from "@/lib/customer/queries";
 import { customerIdSchema } from "@/lib/customer/validation";
 import { ArchiveToggleButton } from "./archive-toggle-button";
+import { getMaskedCustomerIdentity, listMaskedCustomerBankAccounts } from "@/lib/sensitive-data/service";
+import { CustomerIdentityCard } from "./customer-identity-card";
+import { CustomerBankAccountsCard } from "./customer-bank-accounts-card";
 
 export default async function CustomerDetailPage({
   params,
@@ -25,6 +28,10 @@ export default async function CustomerDetailPage({
   if (!customer) {
     notFound();
   }
+
+  // Fetch sensitive identity & bank accounts records
+  const identity = await getMaskedCustomerIdentity(customer.id);
+  const bankAccounts = await listMaskedCustomerBankAccounts(customer.id);
 
   return (
     <div className="space-y-6 max-w-6xl mx-auto">
@@ -72,6 +79,12 @@ export default async function CustomerDetailPage({
             expectedUpdatedAt={customer.updatedAt}
           />
         </div>
+      </div>
+
+      {/* Sensitive Cards Section (NID Identity & Bank Accounts) */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        <CustomerIdentityCard customerId={customer.id} initialIdentity={identity} />
+        <CustomerBankAccountsCard customerId={customer.id} initialBankAccounts={bankAccounts} />
       </div>
 
       {/* Main Details Grid */}
@@ -130,38 +143,21 @@ export default async function CustomerDetailPage({
             </div>
           </div>
 
-          {/* Customer Roles & Identity Status */}
+          {/* Customer Roles */}
           <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-6 space-y-4">
             <h2 className="text-sm font-semibold uppercase tracking-wider text-[#C8B88A] border-b border-[#2A2A2A] pb-2">
-              Roles & Verification Status
+              Assigned Customer Roles
             </h2>
 
-            <div className="space-y-4">
-              <div>
-                <span className="block text-xs text-[#E8E0D4]/50 mb-2">Assigned Customer Roles</span>
-                <div className="flex flex-wrap gap-2">
-                  {customer.roles.map((role) => (
-                    <span
-                      key={role}
-                      className="px-3 py-1 rounded-md text-xs font-semibold bg-[#2A2A2A] text-[#F5F0E8] border border-[#3A3A3A]"
-                    >
-                      {role.replace("_", " ")}
-                    </span>
-                  ))}
-                </div>
-              </div>
-
-              <div className="pt-2 border-t border-[#2A2A2A]/50 flex items-center justify-between">
-                <div>
-                  <span className="block text-xs text-[#E8E0D4]/50">National ID Verification</span>
-                  <span className="text-xs text-[#E8E0D4]/70">
-                    No raw NID number collected in Phase 3A
-                  </span>
-                </div>
-                <span className="px-3 py-1 rounded text-xs font-semibold bg-amber-950/80 text-amber-300 border border-amber-800/80">
-                  Status: {customer.nidStatus}
+            <div className="flex flex-wrap gap-2">
+              {customer.roles.map((role) => (
+                <span
+                  key={role}
+                  className="px-3 py-1 rounded-md text-xs font-semibold bg-[#2A2A2A] text-[#F5F0E8] border border-[#3A3A3A]"
+                >
+                  {role.replace("_", " ")}
                 </span>
-              </div>
+              ))}
             </div>
           </div>
         </div>

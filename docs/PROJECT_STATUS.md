@@ -2,30 +2,58 @@
 
 ## Current Phase
 
-**PHASE 3A, 3A.1, & 3A.2 — Customer Core Management, Customer Roles, Controlled Duplicate Detection, Search, Archiving, Audit History, Security Corrections, Data Minimization, & Premium Admin UI (Completed & Merged)**
+**PHASE 3B1 — Encrypted Customer Identity and Optional Bank-Account Management Foundation (Implementation Completed on Branch `phase-3b1/sensitive-data-encryption`)**
 
 ## Status
 
-**Phase 3A Customer Core Management is complete and merged into `main`** via Pull Request [#8](https://github.com/WadudMahmudJoy/Bike-Management-System/pull/8) (Merge Commit: `87bca0196d4f985ed5e3d7e6c062566e63f19db5`, Main CI Run: [31004263559](https://github.com/WadudMahmudJoy/Bike-Management-System/actions/runs/31004263559) passed cleanly). Temporary feature branch `phase-3/customer-management` has been closed and deleted. Phase 3B has not started and requires explicit user approval.
+**Phase 3B1 implementation is complete and ready for security review on feature branch `phase-3b1/sensitive-data-encryption` with a Pull Request targeting `main`.**
 
-### Key Phase 3A, 3A.1, & 3A.2 Capabilities
-1. **Explicit Route & Action Authorization:** All customer Server Actions and Server Component route pages (`list`, `new`, `detail`, `edit`) call `await requireAdmin();` before parameter resolution or database access.
-2. **Bangladesh Phone Normalization & Masking (`phone.ts`):** Standardized BD mobile numbers to `+8801XXXXXXXXX`. Masked output (`+880 17***-**78`) for list views and non-privileged displays.
-3. **Crockford Base32 Customer Code (`customer-code.ts`):** Immutable `CUS-XXXXXXXX` customer codes backed by database unique constraint and 5-attempt retry loop.
-4. **Controlled Duplicate Phone Workflow & Phone-Change Check (`service.ts`, `customer-form.tsx`):** Detects existing customers sharing normalized phone. Updating existing records with unchanged phone numbers proceeds directly without duplicate confirmation. Phone changes or creates with duplicate numbers trigger a structured warning modal that rechecks matching duplicate IDs server-side on confirmation.
-5. **Mandatory Concurrency Timestamp (`expectedUpdatedAt`):** Status actions (`archiveCustomer`, `restoreCustomer`, `updateCustomer`) require a valid ISO timestamp and execute atomic database updates matching `id` + `updatedAt` + `isArchived`.
-6. **Customer Domain Error Sanitization (`service.ts`):** All database, Prisma, and connection infrastructure exceptions are caught and sanitized into safe, high-level user error messages. Raw SQL errors, constraints, and connection strings are strictly redacted.
-7. **Non-Throwing Filter Validation (`parseCustomerFilters`):** Customer search parameters use `parseCustomerFilters(params)` with safe fallbacks and overlong query capping (max 100 chars), preventing HTTP 500 exceptions.
-8. **Client Edit Payload Minimization (`CustomerEditDTO`):** Edit pages convert customer details to `CustomerEditDTO` via `mapDetailToEditDTO()`, stripping audit history, creator details, normalized phone values, NID status, and archive state from Client Component props. Creator queries exclude admin email addresses.
-9. **Submission Pending-State Guards:** `CustomerForm` guards `handleSubmit` re-entry and disables submit/confirmation buttons while `isSubmitting` is true.
-10. **Sequential Connection Querying (`queries.ts`):** Queries execute sequentially over database clients, completely eliminating PostgreSQL driver transaction client deprecation warnings.
-11. **Whitespace Normalization:** Optional fields (`fatherName`, `whatsappNumber`, `email`, `address`, `emergencyContact`, `internalNotes`) trim whitespace and convert empty/blank inputs to `null`.
-12. **Premium Admin UI (`/admin/customers/`):** Obsidian/Graphite visual design for list, detail, create, and edit pages with clean checkbox `onChange` handlers and mode-specific modal buttons.
-13. **Comprehensive Unit & Integration Verification:** 62 passing Vitest unit tests, 16 passing customer integration assertions with transaction rollback cleanup (`pnpm test:customers`), updated CI pipeline.
+### Key Phase 3B1 Capabilities
+
+1. **Reassessed Migration & Database Invariants (`20260805191700_phase3b1_sensitive_data_invariants`):**
+   - Forward-only SQL migration with fail-fast PostgreSQL compatibility assertions (`DO $$ ... $$;`).
+   - `CustomerIdentity.keyVersion` changed from `Int @default(1)` to nullable `Int?`. Unpopulated `PENDING` identities normalized (`UPDATE "CustomerIdentity" SET "keyVersion" = NULL WHERE "nidStatus" = 'PENDING';`).
+   - `PENDING` status requires ALL sensitive fields (`encryptedNidNumber`, `encryptionIv`, `authTag`, `keyVersion`, `nidNumberHmac`, `lastFour`, `submittedAt`, `verifiedAt`, `verifiedByAdminId`) to be `NULL`.
+   - Populated non-`PENDING` status requires complete 7-field encryption/HMAC bundle and 64-character lowercase hex HMAC format check (`nidNumberHmac ~ '^[a-f0-9]{64}$'`).
+   - `CustomerBankAccount` requires complete 5-field encryption bundle (`encryptedAccountNumber`, `encryptionIv`, `authTag`, `keyVersion`, `accountNumberLastFour`) to be `NOT NULL` on every row.
+   - `lastFour` and `accountNumberLastFour` check constraints require exactly 4 ASCII digits (`^[0-9]{4}$`).
+
+2. **Pre-Generated Record ID for Encryption Context (AAD Binding):**
+   - Server generates UUID `const bankAccountId = crypto.randomUUID()` before encryption to construct canonical AAD binding (`bike-management-system|sensitive:v1|CUSTOMER_BANK_ACCOUNT_NUMBER|customer:<customerId>|record:<bankAccountId>`) and inserts record in one database transaction.
+   - Missing `CustomerIdentity` is treated as an integrity failure; fails closed with generic error (`SENSITIVE_DATA_UNAVAILABLE`).
+
+3. **AES-256-GCM Encryption & Independent HMAC-SHA256 Lookup:**
+   - Versioned AES-256-GCM authenticated encryption using 32-byte Base64 keys (`SENSITIVE_DATA_ENCRYPTION_KEY_V1`), 12-byte random IVs per operation, and 16-byte GCM auth tags.
+   - Independent 32-byte Base64 lookup key (`SENSITIVE_DATA_LOOKUP_HMAC_KEY`) generates deterministic 64-char hex HMAC (`nidNumberHmac`). Hard-blocks duplicate NIDs across active and archived customers with safe error. HMAC values are strictly excluded from DTOs, actions, UI, and audit logs.
+
+4. **Password Re-Authentication & Dual-Key Global Reveal Rate Limiting:**
+   - Plaintext reveal requires active admin session + current admin Argon2id password verification.
+   - Dual reveal throttle tracks primary global key (`sensitive-reveal:admin:<adminId>`) and network key (`sensitive-reveal:admin-ip:<adminId>:<clientIp>`).
+   - 5 failures within 15 minutes blocks reveal access for 15 minutes. Either blocked key rejects reveal request. Distributed-IP attempts are blocked globally.
+   - Reveal throttle remains strictly isolated from normal login throttle.
+
+5. **Fail-Closed Audit Logging & Strict Privacy Redaction:**
+   - Password verify -> Decrypt -> Safe `AuditLog` write -> Plaintext return. If audit insertion fails, reveal operation aborts immediately and returns ZERO plaintext.
+   - Scanned `AuditLog` rows confirm ZERO NID, bank account numbers, last-four, HMAC, ciphertext, IV, tag, password, or key values are written.
+
+6. **Input Boundaries & Rejected Fields:**
+   - Mutation Zod schemas use strict object validation (`.strict()`). Unexpected fields (`routingNumber`, `mobileBankingProvider`, `mobileBankingNumber`, `isDefault`, `encryptedAccountNumber`, `encryptionIv`, `authTag`, `keyVersion`, `nidNumberHmac`, `lastFour`, `adminId`) are strictly rejected.
+
+7. **Client Component Reveal Visibility Auto-Clear:**
+   - `SensitiveRevealModal` exposes plaintext in requesting component for maximum 30 seconds.
+   - Auto-clears immediately on 30s countdown expiry, "Hide now" click, tab-hide (`visibilitychange`), or component unmount. No copy-to-clipboard button.
+
+8. **Comprehensive Verification Pipeline:**
+   - 39-point runtime database integrity test suite (`pnpm db:test-integrity`).
+   - 104-point Vitest unit test suite (`pnpm test`).
+   - 23-point admin auth database integration test suite (`pnpm test:admin-auth`).
+   - 4-point owner CLI non-interactive smoke test (`pnpm test:admin-cli-smoke`).
+   - 16-point customer management integration test suite (`pnpm test:customers`).
+   - 7-point sensitive data database integration test suite (`pnpm test:sensitive-data`).
 
 ---
 
-## Completed Work (Phases 0 through 3A.2)
+## Completed Work (Phases 0 through 3B1)
 
 ### 1. Application & Tooling Foundation
 - Next.js 16.2.12 App Router initialized with TypeScript (strict mode), Tailwind CSS 4, ESLint 9, `src/` directory.
@@ -34,20 +62,21 @@
 - Package manager locked in `package.json` (`"packageManager": "pnpm@11.1.2"`).
 
 ### 2. Local PostgreSQL 18 Container Environment (`compose.yaml`)
-- Containerized PostgreSQL 18 (`postgres:18-alpine`) with project-scoped volume mounted at `/var/lib/postgresql`, bound strictly to `127.0.0.1:5434`.
-- Automated initialization script `docker/postgres/init/01-create-shadow-database.sh` with `set -eu` and safe identifier validation creates shadow database `POSTGRES_SHADOW_DB` on first boot.
+- Containerized PostgreSQL 18 (`postgres:18-alpine`) bound strictly to `127.0.0.1:5434`.
 
 ### 3. Complete Prisma 7 Data Model & Schema State
-- Implemented 27 normalized entities in `prisma/schema.prisma`, including `Customer`, `CustomerRole`, `CustomerIdentity`, `AuditLog`, `AdminUser.normalizedEmail`, and `AdminLoginThrottle`.
+- Implemented 27 normalized entities in `prisma/schema.prisma`.
 
-### 4. Database Migrations (`20260801174101_init_dealership_schema`, `20260802000215_phase1_integrity_corrections`, & `20260802042936_phase2_admin_auth_throttling`)
-- Zero schema modifications or migrations were required for Phase 3A/3A.1/3A.2 as the existing PostgreSQL schema fully supports all customer core capabilities.
+### 4. Database Migrations
+- `20260801174101_init_dealership_schema`
+- `20260802000215_phase1_integrity_corrections`
+- `20260802042936_phase2_admin_auth_throttling`
+- `20260805191700_phase3b1_sensitive_data_invariants`
 
-### 5. Secure Admin Authentication Primitives (`src/lib/auth/`)
-- OWASP-aligned Argon2id hashing, SHA-256 session token digests (`AdminSession.sessionTokenHash`), HTTP-Only secure cookies, privacy-preserving login throttling with HMAC-SHA256 digests, pure edge proxy trust resolver (`AUTH_TRUST_PROXY`), DAL authorization (`requireAdmin()`), interactive owner bootstrap CLI (`pnpm admin:create`), and premium dark admin shell.
-
-### 6. Phase 3A, 3A.1, & 3A.2 Customer Domain & Administration UI
-- Hardened domain service, query module, validation, audit logger, and Server Actions with strict error sanitization, explicit page authorization, non-throwing filter validation, payload data minimization, atomic concurrency timestamps, minimal return DTOs, phone-change-only duplicate checks, and clean UI components.
+### 5. Secure Modules & Infrastructure
+- Secure Admin Authentication Stack.
+- Phase 3A Customer Core Management.
+- Phase 3B1 Encrypted Customer Identity & Bank Accounts Foundation.
 
 ---
 
@@ -61,12 +90,12 @@
 | Prisma Client Generate | ✅ Pass | `pnpm exec prisma generate` -> Output to `src/generated/prisma` |
 | Migration Status | ✅ Pass | `pnpm exec prisma migrate status` -> Up to date |
 | Schema Drift Check | ✅ Pass | `pnpm exec prisma migrate diff` -> 0 differences detected |
-| Idempotent Seed | ✅ Pass | `pnpm exec prisma db seed` -> Seeded twice cleanly |
-| Runtime Integrity Tests | ✅ Pass | `pnpm db:test-integrity` -> ALL 37 TESTS PASSED CLEANLY |
-| Unit Tests (Vitest) | ✅ Pass | `pnpm test` -> 62 / 62 PASSED CLEANLY |
+| Runtime Integrity Tests | ✅ Pass | `pnpm db:test-integrity` -> ALL 39 TESTS PASSED CLEANLY |
+| Unit Tests (Vitest) | ✅ Pass | `pnpm test` -> 104 / 104 PASSED CLEANLY |
 | Admin Auth Integration Tests | ✅ Pass | `pnpm test:admin-auth` -> ALL 23 TESTS PASSED CLEANLY |
 | Admin CLI Smoke Test | ✅ Pass | `pnpm test:admin-cli-smoke` -> ALL 4 TESTS PASSED CLEANLY |
-| Customer Integration Tests | ✅ Pass | `pnpm test:customers` -> ALL PASSED CLEANLY (Zero deprecation warnings, transaction rolled back) |
+| Customer Integration Tests | ✅ Pass | `pnpm test:customers` -> ALL PASSED CLEANLY |
+| Sensitive Data Integration Tests | ✅ Pass | `pnpm test:sensitive-data` -> ALL 7 STEPS PASSED CLEANLY |
 | ESLint | ✅ Pass | `pnpm lint` -> 0 errors, 0 warnings |
 | Typecheck | ✅ Pass | `pnpm typecheck` (`tsc --noEmit`) -> 0 errors |
 | Next.js Build | ✅ Pass | `pnpm build` -> Production build clean |
@@ -77,18 +106,7 @@
 
 ## Current Branch & Git State
 
-- **Branch:** `main`
+- **Branch:** `phase-3b1/sensitive-data-encryption`
 - **Working Tree:** Clean
-- **Pull Request:** [#8](https://github.com/WadudMahmudJoy/Bike-Management-System/pull/8) Merged into `main` (`87bca0196d4f985ed5e3d7e6c062566e63f19db5`)
-- **Main CI Run:** [#31004263559](https://github.com/WadudMahmudJoy/Bike-Management-System/actions/runs/31004263559) Passed
-
----
-
-## Phase Scope & Privacy Confirmation
-
-- **Raw NID:** ❌ Not collected or stored (`nidStatus: PENDING`).
-- **Bank Details:** ❌ Not collected or stored.
-- **Customer Login:** ❌ Not created.
-- **Document Uploads:** ❌ Not implemented.
-- **PR Status:** ✅ Merged into `main`.
-- **Phase 3B:** ❌ Not started (requires explicit user approval).
+- **Pull Request:** Target `main` (Unmerged, pending security review)
+- **Phase 3B2:** ❌ Not started (requires explicit user approval)

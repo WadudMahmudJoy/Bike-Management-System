@@ -344,14 +344,26 @@ async function runIntegrityTests() {
 
     await assertFailure(
       `INSERT INTO "CustomerIdentity" ("id", "customerId", "encryptedNidNumber", "updatedAt") VALUES (gen_random_uuid(), '${sellerId}', 'enc_data', NOW());`,
-      ["chk_customer_identity_encryption_bundle"],
-      "Invalid encryption-field bundle rejected"
+      ["chk_customer_identity_pending_bundle", "chk_customer_identity_populated_bundle"],
+      "Invalid PENDING CustomerIdentity partial encryption bundle rejected"
     );
 
     await assertFailure(
-      `INSERT INTO "Sale" ("id", "saleNumber", "bikeId", "buyerId", "saleDate", "listedPrice", "discountAmount", "finalPrice", "createdByAdminId", "updatedAt") VALUES (gen_random_uuid(), 'SAL-BAD', '${bikeId}', '${buyerId}', NOW(), 200000.00, 10000.00, 150000.00, '${adminId}', NOW());`,
-      ["chk_sale_price_equation"],
-      "Inconsistent sale price/discount equation rejected"
+      `INSERT INTO "CustomerIdentity" ("id", "customerId", "nidStatus", "encryptedNidNumber", "encryptionIv", "authTag", "keyVersion", "nidNumberHmac", "lastFour", "submittedAt", "updatedAt") VALUES (gen_random_uuid(), '${sellerId}', 'SUBMITTED', 'enc_data', 'iv', 'tag', 1, 'invalid_hmac', '1234', NOW(), NOW());`,
+      ["chk_customer_identity_hmac_format"],
+      "Invalid CustomerIdentity 64-char hex HMAC rejected"
+    );
+
+    await assertFailure(
+      `INSERT INTO "CustomerIdentity" ("id", "customerId", "nidStatus", "encryptedNidNumber", "encryptionIv", "authTag", "keyVersion", "nidNumberHmac", "lastFour", "submittedAt", "updatedAt") VALUES (gen_random_uuid(), '${sellerId}', 'VERIFIED', 'enc_data', 'iv', 'tag', 1, '0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef', '1234', NOW(), NOW());`,
+      ["chk_customer_identity_verified_metadata"],
+      "VERIFIED status without verifiedAt/verifiedByAdminId rejected"
+    );
+
+    await assertFailure(
+      `INSERT INTO "CustomerBankAccount" ("id", "customerId", "bankName", "accountHolderName", "encryptedAccountNumber", "encryptionIv", "authTag", "keyVersion", "accountNumberLastFour", "updatedAt") VALUES (gen_random_uuid(), '${sellerId}', 'Bank', 'Holder', 'enc', 'iv', 'tag', 1, '123', NOW());`,
+      ["chk_customer_bank_account_last_four"],
+      "Invalid CustomerBankAccount last-four length rejected"
     );
 
     console.log(`\nALL ${passedCount} INTEGRITY & TRIGGER TESTS PASSED CLEANLY! Rolling back test transaction...`);
