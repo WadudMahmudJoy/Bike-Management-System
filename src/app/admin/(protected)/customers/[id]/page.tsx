@@ -1,23 +1,21 @@
-import { Metadata } from "next";
-import Link from "next/link";
 import { notFound } from "next/navigation";
-import { requireAdmin } from "@/lib/auth/dal";
+import Link from "next/link";
 import { getCustomerById } from "@/lib/customer/queries";
+import { customerIdSchema } from "@/lib/customer/validation";
 import { ArchiveToggleButton } from "./archive-toggle-button";
 
-export const metadata: Metadata = {
-  title: "Customer Details | Admin Dashboard",
-  robots: { index: false, follow: false, noarchive: true },
-};
-
-interface CustomerDetailPageProps {
+export default async function CustomerDetailPage({
+  params,
+}: {
   params: Promise<{ id: string }>;
-}
-
-export default async function CustomerDetailPage({ params }: CustomerDetailPageProps) {
-  await requireAdmin();
-
+}) {
   const { id } = await params;
+
+  const idParsed = customerIdSchema.safeParse(id);
+  if (!idParsed.success) {
+    notFound();
+  }
+
   const customer = await getCustomerById(id);
 
   if (!customer) {
@@ -25,48 +23,44 @@ export default async function CustomerDetailPage({ params }: CustomerDetailPageP
   }
 
   return (
-    <div className="max-w-5xl mx-auto space-y-6">
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-xs text-[#E8E0D4]/60">
-        <Link href="/admin/customers" className="hover:text-[#F5F0E8] transition-colors">
-          Customers
-        </Link>
-        <span>/</span>
-        <span className="text-[#C8B88A] font-mono">{customer.customerCode}</span>
-      </div>
-
-      {/* Header card */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-6">
+    <div className="space-y-6 max-w-6xl mx-auto">
+      {/* Top Action Header */}
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-[#2A2A2A] pb-5">
         <div>
-          <div className="flex items-center gap-3 flex-wrap">
-            <span className="font-mono text-sm font-bold text-[#C8B88A] bg-[#2A2A2A] px-2.5 py-1 rounded border border-[#3A3A3A]">
+          <div className="flex items-center gap-3">
+            <h1 className="text-2xl font-bold tracking-tight text-[#F5F0E8]">
+              {customer.fullName}
+            </h1>
+            <span className="font-mono text-sm px-2.5 py-0.5 rounded bg-[#C8B88A]/10 text-[#C8B88A] border border-[#C8B88A]/30">
               {customer.customerCode}
             </span>
-            <h1 className="text-2xl font-bold text-[#F5F0E8]">{customer.fullName}</h1>
             {customer.isArchived ? (
-              <span className="rounded-full bg-red-950/60 px-3 py-1 text-xs font-semibold text-red-400 border border-red-800/50">
-                Archived
+              <span className="text-xs px-2.5 py-0.5 rounded font-semibold bg-red-950/80 text-red-300 border border-red-800/80">
+                Archived / Inactive
               </span>
             ) : (
-              <span className="rounded-full bg-emerald-950/60 px-3 py-1 text-xs font-semibold text-emerald-400 border border-emerald-800/50">
-                Active
+              <span className="text-xs px-2.5 py-0.5 rounded font-semibold bg-emerald-950/80 text-emerald-300 border border-emerald-800/80">
+                Active Customer
               </span>
             )}
-            <span className="rounded-full bg-amber-950/60 px-3 py-1 text-xs font-semibold text-amber-400 border border-amber-800/50">
-              NID: {customer.nidStatus}
-            </span>
           </div>
-          <p className="text-xs text-[#E8E0D4]/60 mt-2">
-            Created on {new Date(customer.createdAt).toLocaleDateString("en-GB", { dateStyle: "long" })}
+          <p className="text-xs text-[#E8E0D4]/60 mt-1">
+            Created on {new Date(customer.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })} by {customer.createdByAdmin?.name ?? "System"}
           </p>
         </div>
 
         <div className="flex items-center gap-3">
           <Link
-            href={`/admin/customers/${customer.id}/edit`}
-            className="inline-flex items-center justify-center rounded-lg bg-[#C8B88A] px-4 py-2 text-sm font-semibold text-[#0A0A0A] hover:bg-[#D8C89A] transition-colors min-h-[44px]"
+            href="/admin/customers"
+            className="rounded-lg border border-[#2A2A2A] bg-[#0A0A0A] px-4 py-2 text-sm font-medium text-[#E8E0D4]/80 hover:text-[#F5F0E8] hover:bg-[#2A2A2A] transition-colors min-h-[44px] flex items-center"
           >
-            Edit Profile
+            ← Back to Customers
+          </Link>
+          <Link
+            href={`/admin/customers/${customer.id}/edit`}
+            className="rounded-lg border border-[#C8B88A]/40 bg-[#C8B88A]/10 px-4 py-2 text-sm font-medium text-[#C8B88A] hover:bg-[#C8B88A]/20 transition-colors min-h-[44px] flex items-center"
+          >
+            Edit Customer
           </Link>
           <ArchiveToggleButton
             customerId={customer.id}
@@ -76,134 +70,133 @@ export default async function CustomerDetailPage({ params }: CustomerDetailPageP
         </div>
       </div>
 
-      {/* Main details grid */}
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
-        {/* Left Column: Contact & Profile Details */}
+      {/* Main Details Grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left Column: Contact & Core Profile */}
         <div className="lg:col-span-2 space-y-6">
+          {/* Contact Details Card */}
           <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-6 space-y-4">
-            <h2 className="text-lg font-semibold text-[#F5F0E8] border-b border-[#2A2A2A] pb-3">
-              Profile &amp; Operational Contact Info
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-[#C8B88A] border-b border-[#2A2A2A] pb-2">
+              Contact & Communication
             </h2>
 
-            <dl className="grid grid-cols-1 gap-4 sm:grid-cols-2 text-sm">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
               <div>
-                <dt className="text-xs text-[#E8E0D4]/60 font-medium">Full Name</dt>
-                <dd className="mt-1 font-semibold text-[#F5F0E8]">{customer.fullName}</dd>
-              </div>
-
-              <div>
-                <dt className="text-xs text-[#E8E0D4]/60 font-medium">Father&apos;s Name</dt>
-                <dd className="mt-1 text-[#F5F0E8]">{customer.fatherName || "—"}</dd>
+                <span className="block text-xs text-[#E8E0D4]/50 mb-0.5">Primary Phone</span>
+                <span className="font-mono text-[#F5F0E8] font-medium">{customer.phone}</span>
+                <span className="block text-[11px] text-[#E8E0D4]/40 mt-0.5 font-mono">
+                  Normalized: {customer.phoneNormalized}
+                </span>
               </div>
 
               <div>
-                <dt className="text-xs text-[#E8E0D4]/60 font-medium">Primary Phone</dt>
-                <dd className="mt-1 font-mono text-[#C8B88A] font-semibold">{customer.phone}</dd>
+                <span className="block text-xs text-[#E8E0D4]/50 mb-0.5">WhatsApp Number</span>
+                <span className="font-mono text-[#F5F0E8] font-medium">
+                  {customer.whatsappNumber ?? "Not provided"}
+                </span>
               </div>
 
               <div>
-                <dt className="text-xs text-[#E8E0D4]/60 font-medium">WhatsApp Number</dt>
-                <dd className="mt-1 font-mono text-[#F5F0E8]">{customer.whatsappNumber || "—"}</dd>
+                <span className="block text-xs text-[#E8E0D4]/50 mb-0.5">Email Address</span>
+                <span className="text-[#F5F0E8] font-medium">
+                  {customer.email ?? "Not provided"}
+                </span>
               </div>
 
               <div>
-                <dt className="text-xs text-[#E8E0D4]/60 font-medium">Email Address</dt>
-                <dd className="mt-1 text-[#F5F0E8]">{customer.email || "—"}</dd>
+                <span className="block text-xs text-[#E8E0D4]/50 mb-0.5">Emergency Contact</span>
+                <span className="text-[#F5F0E8] font-medium">
+                  {customer.emergencyContact ?? "Not provided"}
+                </span>
               </div>
+            </div>
 
+            <div className="pt-2 border-t border-[#2A2A2A]/50">
+              <span className="block text-xs text-[#E8E0D4]/50 mb-0.5">Father&apos;s Name</span>
+              <span className="text-[#F5F0E8] font-medium">
+                {customer.fatherName ?? "Not provided"}
+              </span>
+            </div>
+
+            <div>
+              <span className="block text-xs text-[#E8E0D4]/50 mb-0.5">Address</span>
+              <p className="text-[#F5F0E8] font-medium whitespace-pre-wrap leading-relaxed">
+                {customer.address ?? "Not provided"}
+              </p>
+            </div>
+          </div>
+
+          {/* Customer Roles & Identity Status */}
+          <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-6 space-y-4">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-[#C8B88A] border-b border-[#2A2A2A] pb-2">
+              Roles & Verification Status
+            </h2>
+
+            <div className="space-y-4">
               <div>
-                <dt className="text-xs text-[#E8E0D4]/60 font-medium">Emergency Contact</dt>
-                <dd className="mt-1 text-[#F5F0E8]">{customer.emergencyContact || "—"}</dd>
-              </div>
-
-              <div className="sm:col-span-2">
-                <dt className="text-xs text-[#E8E0D4]/60 font-medium">Address</dt>
-                <dd className="mt-1 text-[#F5F0E8] whitespace-pre-wrap">{customer.address || "—"}</dd>
-              </div>
-
-              <div className="sm:col-span-2">
-                <dt className="text-xs text-[#E8E0D4]/60 font-medium">Assigned Business Roles</dt>
-                <dd className="mt-1 flex flex-wrap gap-1.5">
-                  {customer.roles.map((r) => (
+                <span className="block text-xs text-[#E8E0D4]/50 mb-2">Assigned Customer Roles</span>
+                <div className="flex flex-wrap gap-2">
+                  {customer.roles.map((role) => (
                     <span
-                      key={r}
-                      className="rounded bg-[#2A2A2A] px-2.5 py-1 text-xs font-semibold text-[#C8B88A] border border-[#3A3A3A]"
+                      key={role}
+                      className="px-3 py-1 rounded-md text-xs font-semibold bg-[#2A2A2A] text-[#F5F0E8] border border-[#3A3A3A]"
                     >
-                      {r.replace("_", " ")}
+                      {role.replace("_", " ")}
                     </span>
                   ))}
-                </dd>
+                </div>
               </div>
 
-              {customer.internalNotes && (
-                <div className="sm:col-span-2 border-t border-[#2A2A2A] pt-4">
-                  <dt className="text-xs text-[#E8E0D4]/60 font-medium">Internal Admin Notes</dt>
-                  <dd className="mt-1 text-[#E8E0D4] bg-[#0A0A0A] p-3 rounded-lg border border-[#2A2A2A] text-xs leading-relaxed whitespace-pre-wrap">
-                    {customer.internalNotes}
-                  </dd>
+              <div className="pt-2 border-t border-[#2A2A2A]/50 flex items-center justify-between">
+                <div>
+                  <span className="block text-xs text-[#E8E0D4]/50">National ID Verification</span>
+                  <span className="text-xs text-[#E8E0D4]/70">
+                    No raw NID number collected in Phase 3A
+                  </span>
                 </div>
-              )}
-            </dl>
+                <span className="px-3 py-1 rounded text-xs font-semibold bg-amber-950/80 text-amber-300 border border-amber-800/80">
+                  Status: {customer.nidStatus}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Right Column: Metadata & Audit Timeline */}
+        {/* Right Column: Internal Notes & Audit Log Timeline */}
         <div className="space-y-6">
-          {/* Metadata Card */}
-          <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-6 space-y-4">
-            <h3 className="text-base font-semibold text-[#F5F0E8] border-b border-[#2A2A2A] pb-3">
-              Record Metadata
-            </h3>
-            <dl className="space-y-3 text-xs">
-              <div>
-                <dt className="text-[#E8E0D4]/60">Created By Admin</dt>
-                <dd className="mt-0.5 font-medium text-[#F5F0E8]">
-                  {customer.createdByAdmin?.name ?? "System / Unknown"}
-                </dd>
-              </div>
-
-              <div>
-                <dt className="text-[#E8E0D4]/60">Created At</dt>
-                <dd className="mt-0.5 font-mono text-[#F5F0E8]">
-                  {new Date(customer.createdAt).toLocaleString("en-GB")}
-                </dd>
-              </div>
-
-              <div>
-                <dt className="text-[#E8E0D4]/60">Last Updated</dt>
-                <dd className="mt-0.5 font-mono text-[#F5F0E8]">
-                  {new Date(customer.updatedAt).toLocaleString("en-GB")}
-                </dd>
-              </div>
-
-              <div>
-                <dt className="text-[#E8E0D4]/60">NID Status Lifecycle</dt>
-                <dd className="mt-0.5 font-medium text-amber-400">
-                  {customer.nidStatus} (No raw NID collected)
-                </dd>
-              </div>
-            </dl>
+          {/* Internal Notes Card */}
+          <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-6 space-y-3">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-[#C8B88A] border-b border-[#2A2A2A] pb-2">
+              Internal Admin Notes
+            </h2>
+            <p className="text-xs text-[#E8E0D4]/80 whitespace-pre-wrap leading-relaxed">
+              {customer.internalNotes ?? "No internal notes recorded for this customer."}
+            </p>
           </div>
 
-          {/* Audit History Timeline */}
+          {/* Privacy Audit Timeline */}
           <div className="rounded-xl border border-[#2A2A2A] bg-[#1A1A1A] p-6 space-y-4">
-            <h3 className="text-base font-semibold text-[#F5F0E8] border-b border-[#2A2A2A] pb-3">
-              Audit Event Log
-            </h3>
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-[#C8B88A] border-b border-[#2A2A2A] pb-2">
+              Audit History Timeline
+            </h2>
+
             {customer.auditHistory.length === 0 ? (
-              <p className="text-xs text-[#E8E0D4]/60">No audit events recorded.</p>
+              <p className="text-xs text-[#E8E0D4]/50">No audit log entries recorded.</p>
             ) : (
-              <div className="space-y-3 max-h-80 overflow-y-auto pr-1">
-                {customer.auditHistory.map((log) => (
-                  <div key={log.id} className="border-l-2 border-[#C8B88A] pl-3 py-1 space-y-0.5">
-                    <div className="flex items-center justify-between text-[11px]">
-                      <span className="font-semibold text-[#C8B88A]">{log.action}</span>
-                      <span className="text-[#E8E0D4]/50">{log.adminName}</span>
+              <div className="space-y-3 relative before:absolute before:inset-0 before:left-2 before:w-0.5 before:bg-[#2A2A2A]">
+                {customer.auditHistory.map((entry) => (
+                  <div key={entry.id} className="relative pl-6 text-xs">
+                    <div className="absolute left-0 top-1 h-4 w-4 rounded-full border-2 border-[#1A1A1A] bg-[#C8B88A]" />
+                    <div className="font-semibold text-[#F5F0E8]">{entry.detailsSummary}</div>
+                    <div className="text-[11px] text-[#E8E0D4]/50 mt-0.5">
+                      {new Date(entry.createdAt).toLocaleString("en-GB", {
+                        day: "numeric",
+                        month: "short",
+                        year: "numeric",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })} • {entry.adminName ?? "System"}
                     </div>
-                    <p className="text-xs text-[#E8E0D4]/90">{log.detailsSummary}</p>
-                    <p className="text-[10px] font-mono text-[#E8E0D4]/50">
-                      {new Date(log.createdAt).toLocaleString("en-GB")}
-                    </p>
                   </div>
                 ))}
               </div>

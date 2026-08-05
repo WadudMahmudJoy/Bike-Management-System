@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { createCustomerAction, updateCustomerAction } from "./actions";
-import type { CustomerDetailDTO, DuplicateCheckResult, CustomerRoleType } from "@/lib/customer/types";
+import type { CustomerDetailDTO, DuplicateWarningDTO, CustomerRoleType } from "@/lib/customer/types";
 
 interface CustomerFormProps {
   initialData?: CustomerDetailDTO;
@@ -38,7 +38,7 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
   const [error, setError] = useState<string | null>(null);
 
   // Duplicate warning state
-  const [duplicateWarning, setDuplicateWarning] = useState<DuplicateCheckResult | null>(null);
+  const [duplicateWarning, setDuplicateWarning] = useState<DuplicateWarningDTO | null>(null);
   const [showDuplicateModal, setShowDuplicateModal] = useState(false);
 
   const toggleRole = (role: CustomerRoleType) => {
@@ -84,7 +84,7 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
           return;
         }
 
-        router.push(`/admin/customers/${initialData.id}`);
+        router.push(`/admin/customers/${res.data.customerId}`);
         router.refresh();
       } else {
         const res = await createCustomerAction({
@@ -112,7 +112,7 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
           return;
         }
 
-        router.push(`/admin/customers/${res.data.id}`);
+        router.push(`/admin/customers/${res.data.customerId}`);
         router.refresh();
       }
     } catch {
@@ -253,28 +253,32 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
             />
           </div>
 
-          {/* Customer Roles */}
+          {/* Customer Roles - Checkbox input onChange handles toggle cleanly */}
           <div>
             <label className="block text-sm font-medium text-[#E8E0D4] mb-2">
               Customer Roles <span className="text-red-400">*</span>
             </label>
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
               {ALL_ROLES.map((r) => {
-                const isSelected = selectedRoles.includes(r.value);
+                const isChecked = selectedRoles.includes(r.value);
+                const inputId = `role-${r.value}`;
                 return (
                   <label
                     key={r.value}
-                    onClick={() => toggleRole(r.value)}
+                    htmlFor={inputId}
                     className={`flex items-center gap-3 rounded-lg border p-3 cursor-pointer transition-colors select-none ${
-                      isSelected
+                      isChecked
                         ? "border-[#C8B88A] bg-[#C8B88A]/10 text-[#F5F0E8]"
                         : "border-[#2A2A2A] bg-[#0A0A0A] text-[#E8E0D4]/70 hover:border-[#3A3A3A]"
                     }`}
                   >
                     <input
                       type="checkbox"
-                      checked={isSelected}
-                      onChange={() => {}} // handled by label onClick
+                      id={inputId}
+                      name="roles"
+                      value={r.value}
+                      checked={isChecked}
+                      onChange={() => toggleRole(r.value)}
                       className="h-4 w-4 rounded border-[#3A3A3A] bg-[#0A0A0A] text-[#C8B88A] focus:ring-[#C8B88A]"
                     />
                     <span className="text-sm font-medium">{r.label}</span>
@@ -375,7 +379,7 @@ export function CustomerForm({ initialData }: CustomerFormProps) {
                 onClick={handleConfirmDuplicate}
                 className="rounded-lg bg-amber-500 px-4 py-2 text-sm font-semibold text-black hover:bg-amber-400 transition-colors min-h-[44px]"
               >
-                Confirm & Create Record
+                {isEdit ? "Confirm & Save Changes" : "Confirm & Create Customer"}
               </button>
             </div>
           </div>
